@@ -125,11 +125,51 @@ Tick size is **not uniform**. Markets carry `price_level_structure` and a
 So the tick is a tenth of a cent through the middle of the range and a
 hundredth of a cent at the edges.
 
+**Three structures observed live** (Step 2 survey, ~19,000 markets):
+
+| `price_level_structure` | Bands |
+| --- | --- |
+| `linear_cent` | `0.0000–1.0000` step `0.0100` (uniform cent) |
+| `tapered_deci_cent` | `0.0000–0.1000` @ `0.0010`, `0.1000–0.9000` @ `0.0100`, `0.9000–1.0000` @ `0.0010` |
+| `center_deci_edge_centi_cent` | `0.0000–0.0100` @ `0.0001`, `0.0100–0.9900` @ `0.0010`, `0.9900–1.0000` @ `0.0001` |
+
+**Boundary semantics — RESOLVED (verified computationally).** Adjacent bands
+share an endpoint, so which band owns it was an open question. Checked across
+all three structures:
+
+* every band is contiguous with the next (`band[i].end == band[i+1].start`);
+* every band's span is a whole number of its own steps, so its endpoint is on
+  its own grid;
+* therefore at every interior boundary **both** adjacent bands accept the price.
+
+Because the bands agree, ownership does not affect validity: a price is valid if
+**any** band accepts it. This is structural rather than coincidental — given
+contiguity and whole-step spans it cannot be otherwise — so the remaining risk
+is a future structure whose bands *overlap* over a range rather than meeting at
+a point. `PriceGrid.has_consistent_boundaries()` detects exactly that case, and
+an instrument failing it is excluded rather than guessed at.
+
 **Consequences.** A cent-based integer representation cannot hold these prices.
-Our `Price` type uses units of `$0.0001`. Tick validity is a per-market
-property read from `price_ranges`, never assumed — and note the ranges are
-half-open and adjacent, so boundary handling (which range owns `0.0100`?) must
-be pinned down before we validate ticks. Recorded as an open question below.
+Our `Price` type uses units of `$0.0001`. Tick validity is a per-market property
+read from `price_ranges`; `price_level_structure` is retained as metadata only
+and no business logic branches on its name.
+
+**Distribution note.** `center_deci_edge_centi_cent` — the finest grid — was
+observed **only** on multivariate combo markets (7,787 of 7,787 in one sample),
+and almost none of those quote anything. Sub-cent pricing is therefore largely
+confined to instruments Phase 1 excludes.
+
+**A fourth structure name exists.** A live validation run on 2026-09-15 observed
+`deci_cent` on 2 of 515 markets. A subsequent sweep of all 14,092 series did not
+find it again, so its band layout is **not captured** and the name is recorded
+here as an observation rather than a documented structure.
+
+This is worth more than a footnote: the run that encountered it **passed all
+checks**. Nothing branches on `price_level_structure`, so an unseen structure
+name costs nothing — the grid is read from `price_ranges` and validated on its
+own terms. Had the code carried a `structure_name -> bands` table, that run
+would have failed on a name nobody had heard of. Treat the list of structure
+names as open.
 
 ### A-05 Quantities: fixed-point, fractional — VERIFIED (live)
 
@@ -259,6 +299,35 @@ There is **no universal Kalshi fee percentage**. The series object carries:
 Observed live: series `KXHIGHNY` reports `fee_type: "quadratic"`,
 `fee_multiplier: 1`.
 
+**The documented `fee_type` enum is incomplete — VERIFIED (live).** Across 147
+historical series fee changes:
+
+| `fee_type` | Count |
+| --- | --- |
+| `quadratic_with_maker_fees` | 64 |
+| `quadratic` | 55 |
+| `margin_market_maker_program_fees` | 24 |
+| `quadratic_with_combo_maker_fees` | 4 |
+
+`margin_market_maker_program_fees` is **absent from the documented four-value
+enum** (it appears on margin/perps series such as `KXGOLDPERP`). A closed enum
+would have crashed ingestion on real data, so `fee_type` is modelled as a plain
+string and mapped to our vocabulary with an explicit unrecognised case that
+fails closed.
+
+**`fee_multiplier` is not always 1 — VERIFIED (live).** Observed values: `0`,
+`0.5`, `1`. A multiplier of `0` means fees are genuinely waived for that series.
+Assuming `M = 1` would overstate costs on some series and understate nothing —
+but it would still be wrong, and on a `0` series it would hide a real edge.
+
+**`fee_multiplier` is a JSON *number*, not a string.** This is the one
+financially relevant field Kalshi does not encode as a decimal string, so
+`json.loads` converts it to a `float` before any validation can object. Payloads
+are therefore decoded with `parse_float=Decimal`. `0.5` happens to be
+binary-exact so a float round-trip would survive today; a future `0.1` would
+not, and the loss would be silent. The same decoding protects `floor_strike` and
+`cap_strike`, which are also JSON numbers.
+
 Events can override both, via `fee_type_override` and
 `fee_multiplier_override`, which "take precedence over series-level fees".
 
@@ -281,8 +350,28 @@ There is an event-level equivalent. **This is the authoritative source for
 point-in-time fee correctness**, and is exactly what replay needs to avoid
 applying today's fees to last week's book.
 
-Note: a naive path guess of `/series/{ticker}/fee_changes` returns 404. The
-real path is `/series/fee_changes` with the ticker as a query parameter.
+**Two path gotchas, both verified live:**
+
+* `/series/{ticker}/fee_changes` returns **404**. The real path is
+  `/series/fee_changes` with the ticker as a *query parameter*.
+* The event-level endpoint is `/events/fee_changes` (**plural**).
+  `/event/fee_changes` returns 404.
+
+**`show_historical=true` is required — VERIFIED (live).** Without it the
+endpoint returns an empty array:
+
+```
+GET /series/fee_changes                      -> {"series_fee_change_arr":[]}
+GET /series/fee_changes?show_historical=true -> 147 records
+```
+
+This is a trap for point-in-time correctness: a collector that omits the flag
+gets a successful 200 with no data and would silently conclude that no fee
+change has ever happened.
+
+`/events/fee_changes` returns `event_fee_changes` with `fee_type_override`,
+`fee_multiplier_override`, `event_ticker`, `series_ticker`, `id`,
+`scheduled_ts`, plus a `cursor` for pagination.
 
 ### A-13 Fee rounding — VERIFIED (docs)
 
@@ -444,10 +533,26 @@ eligible for a contractual-arbitrage claim.
 
 ### A-18 Payout is metadata — VERIFIED (live)
 
-`notional_value_dollars` carries the per-contract settlement value; observed
-`"1.0000"`. We read it per instrument rather than assuming $1.00. Whether any
-live market carries a different notional is **unconfirmed** — but reading the
-field costs nothing and removes the assumption entirely.
+`notional_value_dollars` carries the per-contract settlement value.
+
+**Survey (Step 2).** Sampled **~19,100 markets** across three populations:
+
+| Population | Markets | `notional_value_dollars` | `market_type` |
+| --- | --- | --- | --- |
+| Default `/markets` listing (open) | 12,000 | all `"1.0000"` | all `binary` |
+| Settled markets | 6,000 | all `"1.0000"` | all `binary` |
+| Sampled across ~400 distinct series | 1,089 | all `"1.0000"` | all `binary` |
+
+Settled markets reported `settlement_value_dollars` of exactly `"0.0000"` or
+`"1.0000"`, and `result` of `yes` or `no` — consistent with $1 binary payout.
+
+**Conclusion: no market with a notional other than `$1.0000` was observed, and
+no `scalar` market was observed at all.** That is evidence, not proof. The field
+is still read per instrument and `Price.complement()` still requires an explicit
+notional, because the cost of reading the field is zero and the cost of a wrong
+assumption is every payoff silently rescaled. `market_type: "scalar"` and
+`result: "scalar"` remain documented, so the type exists even if it is not
+currently listed on this endpoint.
 
 ### A-19 Strike structure — VERIFIED (live)
 
@@ -505,6 +610,57 @@ guarantee.
 
 ---
 
+### A-24 WebSocket requires authentication — VERIFIED (empirically)
+
+Confirmed by attempting an unauthenticated connection to the production socket:
+
+```
+wss://external-api-ws.kalshi.com/trade-api/ws/v2
+-> websockets.exceptions.InvalidStatus: server rejected WebSocket connection: HTTP 401
+```
+
+Public market data over REST needs no credentials, but the WebSocket does, even
+for public order-book channels. **Consequence for Phase 1:** with no API key
+configured, no real WebSocket message can be captured. The WebSocket fixtures in
+`tests/fixtures/kalshi/websocket/` are therefore **synthetic and labelled as
+such** in the manifest, the filenames and a README. Resolving A-09 is blocked on
+credentials.
+
+### A-25 REST and WebSocket name the book differently — VERIFIED
+
+| Transport | Shape |
+| --- | --- |
+| REST `GET /markets/{ticker}/orderbook` | `{"orderbook_fp": {"yes_dollars": [...], "no_dollars": [...]}}` |
+| WebSocket `orderbook_snapshot` | `{"msg": {"yes_dollars_fp": [...], "no_dollars_fp": [...]}}` |
+
+Same data, different wrapper and different field names — the `_fp` suffix moves
+from the wrapper to the arrays. Modelled by two separate wire classes so neither
+can be validated with the other's schema.
+
+### A-26 Exchange shards — VERIFIED (live)
+
+`GET /exchange/status` enumerates the shards referenced by `exchange_index`:
+
+| Index | Description |
+| --- | --- |
+| 0 | Default |
+| 1 | Combos |
+| 2 | Crypto & Commodities |
+| 3 | Tennis, Baseball, Basketball |
+
+Each reports `exchange_active`, `trading_active` and
+`intra_exchange_transfers_active` independently, so one shard can be halted
+while others trade. A book from a halted shard is not a tradeable book, which
+makes this a scan-eligibility input, not just diagnostics.
+
+### A-27 Undocumented response fields appear without notice — OBSERVED
+
+`GET /events` returns a top-level `milestones` key that is not in the models
+here and was not looked for. It is ignored safely. This is the concrete
+justification for the forward-compatibility policy: unknown fields are ignored
+but *reported*, so additions surface in observability instead of either crashing
+ingestion or vanishing silently.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no
@@ -528,7 +684,12 @@ followed with a preference for fixed-point integers; see
 Ordered by how much damage a wrong guess would do.
 
 1. **A-09 — `seq` scoping and the expected gap-recovery procedure.** Currently
-   handled by failing closed and resnapshotting.
+   handled by failing closed and resnapshotting. **Blocked on credentials**
+   (A-24): the socket rejects unauthenticated connections, so the controlled
+   observation needed to settle this — one subscription covering several
+   markets, then several subscriptions — cannot be run yet. The synthetic
+   fixtures deliberately do **not** encode an answer, and nothing in the wire
+   layer interprets `seq`.
 2. **A-14 — the per-series non-standard multiplier table.** The general
    formulas are now verified, but the fee schedule PDF also carries a table of
    series with non-standard maker/taker multipliers, which is not yet
@@ -538,13 +699,13 @@ Ordered by how much damage a wrong guess would do.
    whether the PDF's table ever disagrees with that field.
 3. **A-16 — does `MECNET` net collateral across a mutually-exclusive basket,
    and by how much?** Affects capital and return, not classification.
-4. **A-04 — `price_ranges` boundary semantics.** Which range owns a price that
-   lands exactly on a boundary?
-5. **A-10 — the numeric per-subscription market limit.**
-6. **A-18 — does any live market have a notional other than `$1.0000`?**
-7. **Maker fees.** Phase 1 models taker execution only, so this is deferred,
+4. **A-10 — the numeric per-subscription market limit.**
+5. **A-18 — does any live market have a notional other than `$1.0000`?**
+   ~19,100 markets sampled, all `$1.0000` and all `binary`; no `scalar` market
+   observed. Downgraded from unknown to *unobserved*, not closed.
+6. **Maker fees.** Phase 1 models taker execution only, so this is deferred,
    but `quadratic_with_maker_fees` exists and the `0.0175` rate is recorded.
-8. **Settlement edge cases.** Void, cancellation, postponement and tie
+7. **Settlement edge cases.** Void, cancellation, postponement and tie
    behaviour are not enumerated in the API docs. Per-series contract terms
    (`contract_terms_url`) are the real source. Until read for a given series,
    its settlement spec stays `UNKNOWN` and its markets are excluded.
@@ -557,6 +718,8 @@ Ordered by how much damage a wrong guess would do.
 | What the WS handshake signs (A-03) | Verified: `timestamp + "GET" + "/trade-api/ws/v2"` |
 | `model_fee` formula unknown (A-14) | Verified: taker `M*0.07*C*P*(1-P)`, maker `M*0.0175*C*P*(1-P)` |
 | Fee rounding: cent or 6 dp? (A-13) | Resolved: 6 dp per official API docs; third-party "to the cent" is not authoritative |
+| `price_ranges` boundary ownership (A-04) | Resolved: bands are contiguous and whole-step, so adjacent bands always agree; validity is the union |
+| Does the WebSocket need auth? (A-24) | Resolved: yes — HTTP 401 unauthenticated, verified empirically |
 
 ## Sources
 

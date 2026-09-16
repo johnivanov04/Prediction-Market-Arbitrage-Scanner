@@ -72,6 +72,7 @@ __all__ = [
     "MoneyError",
     "Price",
     "Quantity",
+    "QuantityDelta",
 ]
 
 PRICE_DECIMALS: Final[int] = 4
@@ -296,6 +297,64 @@ class Quantity:
         if not isinstance(price, Price):
             return NotImplemented
         return Money(self.units * price.units)
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class QuantityDelta:
+    """A **signed** change in contract count, in units of 0.01 contracts.
+
+    Kalshi's ``orderbook_delta`` messages carry ``delta_fp`` as a signed
+    fixed-point string (``"-54.00"``), so a delta cannot be represented by
+    :class:`Quantity`, which is non-negative by construction. Keeping them as
+    separate types means a delta can never be mistaken for a resting size.
+    """
+
+    units: int
+
+    def __post_init__(self) -> None:
+        _require_int(self.units, field="QuantityDelta.units")
+
+    @classmethod
+    def from_value(cls, value: object) -> Self:
+        return cls(
+            _units_from(
+                value, scale=QUANTITY_SCALE, decimals=QUANTITY_DECIMALS, field="QuantityDelta"
+            )
+        )
+
+    @classmethod
+    def from_units(cls, units: int) -> Self:
+        return cls(units)
+
+    def as_decimal(self) -> Decimal:
+        return Decimal(self.to_str())
+
+    def to_str(self) -> str:
+        """Render in the venue's wire format, e.g. ``"-54.00"``."""
+        return _format_units(self.units, QUANTITY_DECIMALS)
+
+    def __str__(self) -> str:
+        return self.to_str()
+
+    @property
+    def is_negative(self) -> bool:
+        return self.units < 0
+
+    def apply_to(self, quantity: Quantity) -> Quantity:
+        """Apply this delta to a resting size.
+
+        Raises if the result would be negative. A book level cannot hold a
+        negative size, so that outcome means the book state is wrong -- a
+        missed message or a misapplied delta -- and must surface rather than be
+        clamped to zero, which would silently hide the gap.
+        """
+        total = quantity.units + self.units
+        if total < 0:
+            raise InexactValueError(
+                f"applying delta {self} to size {quantity} would give a negative "
+                f"quantity ({total} units); the book state is inconsistent"
+            )
+        return Quantity(total)
 
 
 @dataclass(frozen=True, slots=True, order=True)

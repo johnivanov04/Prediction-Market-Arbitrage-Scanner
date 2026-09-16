@@ -48,7 +48,7 @@ independent status axes on every opportunity record.
 | [docs/data_model.md](docs/data_model.md) | Canonical event → proposition → settlement spec → venue instrument, relations, versioning |
 | [docs/arbitrage_definitions.md](docs/arbitrage_definitions.md) | Formal definitions, the four opportunity structures, and the traps |
 | [docs/api_assumptions.md](docs/api_assumptions.md) | Verified Kalshi API findings, discrepancies, and open questions |
-| docs/kalshi_adapter.md | *(planned)* Adapter specifics |
+| [docs/kalshi_adapter.md](docs/kalshi_adapter.md) | Wire schema, fixed-point parsing, forward-compatibility policy, normalisation |
 | docs/replay.md | *(planned)* Replay and point-in-time guarantees |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict
@@ -57,19 +57,30 @@ contract counts are fractional, tick size varies with price level).
 
 ## Status
 
-Phase 1, first task complete: research, architecture, docs and project
-skeleton. Implemented so far:
+Phase 1, step 2 complete: foundations plus the Kalshi wire and normalisation
+layer, built against real captured payloads.
 
-- `predarb.domain.money` — exact `Price` / `Quantity` / `Money` scaled-integer
-  arithmetic, floats rejected at the boundary
-- `predarb.domain.enums` — the closed vocabularies, including the three
-  independent opportunity status axes
-- `predarb.clock` — UTC-only time, the three-timestamp provenance model,
-  injectable clock for replay
+**Step 1 — foundations**
+
+- `predarb.domain.money` — exact `Price` / `Quantity` / `Money` / `QuantityDelta`
+  scaled-integer arithmetic, floats rejected at the boundary
+- `predarb.domain.enums` — closed vocabularies, including the three independent
+  opportunity status axes
+- `predarb.clock` — UTC-only time, three-timestamp provenance, injectable clock
 - `predarb.config`, `predarb.logging`
 
-Everything else is a documented skeleton. See `docs/architecture.md` for the
-build order.
+**Step 2 — venue boundary**
+
+- `predarb.venues.kalshi.fixed_point` — exact string → fixed-point parsing
+- `predarb.venues.kalshi.models` — Pydantic v2 wire schema with a documented
+  per-field strictness policy
+- `predarb.venues.kalshi.normalize` — deterministic wire → domain conversion
+- `predarb.domain.models` — price grid and venue instrument/event/series
+- `predarb.domain.fees` — point-in-time resolvable fee configuration
+- `predarb.books.levels` — normalised book levels, ordering, quoted/derived split
+
+Next: REST client and authentication. Book reconstruction, detectors, storage
+and replay remain unbuilt — see `docs/architecture.md` §6 for the build order.
 
 ## Development
 

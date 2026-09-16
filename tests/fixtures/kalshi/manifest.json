@@ -1,0 +1,438 @@
+{
+  "description": "Provenance for Kalshi API fixtures. REST entries are real, unmodified response bodies from the public production API. WebSocket entries are SYNTHETIC and labelled as such -- see websocket/README.md.",
+  "api_base": "https://external-api.kalshi.com/trade-api/v2",
+  "generated_at_utc": "2026-09-15T23:16:31.226747Z",
+  "generator": "tools/capture_fixtures.py",
+  "credential_safety": "Captured with a fixed public header set containing no authorisation header. Public market-data endpoints only. No account, portfolio, order, fill or balance data is contacted or stored.",
+  "fixtures": [
+    {
+      "file": "rest/series_KXHIGHNY.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /series/{series_ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/series/KXHIGHNY",
+      "query": {},
+      "tickers": {
+        "series": "KXHIGHNY"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:27.946049Z",
+      "raw_unmodified": true,
+      "byte_length": 1492,
+      "sha256": "082efb79491584940bcf17d0e399c1953a8d395b30f38889d86b84a17417caec",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Weather series. fee_type=quadratic, fee_multiplier=1, settlement_sources present."
+    },
+    {
+      "file": "rest/event_mutually_exclusive.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /events/{event_ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/events/KXNEXTNATOSECGEN-99",
+      "query": {},
+      "tickers": {
+        "event": "KXNEXTNATOSECGEN-99"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:28.130744Z",
+      "raw_unmodified": true,
+      "byte_length": 15849,
+      "sha256": "fe72b576a9426ff16649ed715fabf888db1c4aa542a793c75535dbed7d622c84",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "mutually_exclusive=true, collateral_return_type=MECNET."
+    },
+    {
+      "file": "rest/event_not_mutually_exclusive.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /events/{event_ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/events/KXELONMARS-99",
+      "query": {},
+      "tickers": {
+        "event": "KXELONMARS-99"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:28.310546Z",
+      "raw_unmodified": true,
+      "byte_length": 2809,
+      "sha256": "fecc1f78bdcc24848a0c48fac26ea1e6018a8efccf080d899b64ea6f94283dc1",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "mutually_exclusive=false, empty collateral_return_type."
+    },
+    {
+      "file": "rest/events_list.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /events",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/events?limit=5&status=open",
+      "query": {
+        "limit": 5,
+        "status": "open"
+      },
+      "tickers": {},
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:28.507461Z",
+      "raw_unmodified": true,
+      "byte_length": 5553,
+      "sha256": "f0eef8c9e82c0fb778e5e1c06dc9c82c1514831fa274161a17b221d68d7423cd",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Event list page, for pagination/cursor shape."
+    },
+    {
+      "file": "rest/markets_list.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets?limit=5&status=open",
+      "query": {
+        "limit": 5,
+        "status": "open"
+      },
+      "tickers": {},
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:28.691533Z",
+      "raw_unmodified": true,
+      "byte_length": 20510,
+      "sha256": "f4ae3e159c14f88390a7e7e84d6ac317df7071453d0f39e949c40153ea664346",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Market list page, for pagination/cursor shape."
+    },
+    {
+      "file": "rest/market_center_deci_edge_centi_cent.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXMVECROSSCATEGORY-SHARD1-S20265DCA098B3FA-A7900EA6B63",
+      "query": {},
+      "tickers": {
+        "market": "KXMVECROSSCATEGORY-SHARD1-S20265DCA098B3FA-A7900EA6B63"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:28.872776Z",
+      "raw_unmodified": true,
+      "byte_length": 2256,
+      "sha256": "8f2202f876b36679efb9c9aeddffd5af5a6d2c0ef12d5292fb8c7e17c1f64a30",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Single market with price_level_structure=center_deci_edge_centi_cent."
+    },
+    {
+      "file": "rest/orderbook_center_deci_edge_centi_cent.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}/orderbook",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXMVECROSSCATEGORY-SHARD1-S20265DCA098B3FA-A7900EA6B63/orderbook",
+      "query": {},
+      "tickers": {
+        "market": "KXMVECROSSCATEGORY-SHARD1-S20265DCA098B3FA-A7900EA6B63"
+      },
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:29.051843Z",
+      "raw_unmodified": true,
+      "byte_length": 87,
+      "sha256": "cce40883c278f3faf5ba51f4b46e377197585458c3328e7d61076fca1fcf6ba4",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Order book for a center_deci_edge_centi_cent market. Bids only; yes_dollars + no_dollars."
+    },
+    {
+      "file": "rest/market_linear_cent.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXPRESPERSON-28-REMA",
+      "query": {},
+      "tickers": {
+        "market": "KXPRESPERSON-28-REMA"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:29.229909Z",
+      "raw_unmodified": true,
+      "byte_length": 1656,
+      "sha256": "d953ed868791b203221e799d98f04d4683d43b239cb980a257a910a513f87507",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Single market with price_level_structure=linear_cent."
+    },
+    {
+      "file": "rest/orderbook_linear_cent.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}/orderbook",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXPRESPERSON-28-REMA/orderbook",
+      "query": {},
+      "tickers": {
+        "market": "KXPRESPERSON-28-REMA"
+      },
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:29.403663Z",
+      "raw_unmodified": true,
+      "byte_length": 927,
+      "sha256": "7163e5c44700aac846cb62f8636c4d6316b70537815747cb0de9870f8d77fb35",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Order book for a linear_cent market. Bids only; yes_dollars + no_dollars."
+    },
+    {
+      "file": "rest/market_tapered_deci_cent.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXPRESPERSON-28-SSMI",
+      "query": {},
+      "tickers": {
+        "market": "KXPRESPERSON-28-SSMI"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:29.591109Z",
+      "raw_unmodified": true,
+      "byte_length": 1704,
+      "sha256": "846bf6295e7ad3fb86199610e173107228bd2018b8857e07f43fead1670adc9d",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Single market with price_level_structure=tapered_deci_cent."
+    },
+    {
+      "file": "rest/orderbook_tapered_deci_cent.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}/orderbook",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXPRESPERSON-28-SSMI/orderbook",
+      "query": {},
+      "tickers": {
+        "market": "KXPRESPERSON-28-SSMI"
+      },
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:29.769791Z",
+      "raw_unmodified": true,
+      "byte_length": 1196,
+      "sha256": "9e6cf61c9ec47fd6856c5dbafb2b0995c8fb465dd68551c1d1ff1a55e834ab92",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Order book for a tapered_deci_cent market. Bids only; yes_dollars + no_dollars."
+    },
+    {
+      "file": "rest/orderbook_empty.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}/orderbook",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXMVECROSSCATEGORY-SHARD1-S20268F14507CF77-6EC6E82E746/orderbook",
+      "query": {},
+      "tickers": {
+        "market": "KXMVECROSSCATEGORY-SHARD1-S20268F14507CF77-6EC6E82E746"
+      },
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:30.145922Z",
+      "raw_unmodified": true,
+      "byte_length": 51,
+      "sha256": "e07d09f130e604a9e1acfc736fb57cbdfc33d8a5a253466a0cbd5c98cf6c9f74",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Order book with no resting interest on either side."
+    },
+    {
+      "file": "rest/market_settled.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /markets/{ticker}",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/markets/KXMVECROSSCATEGORY-SHARD1-S2026DE9BCDBBA52-ABEA9F7FDAF",
+      "query": {},
+      "tickers": {
+        "market": "KXMVECROSSCATEGORY-SHARD1-S2026DE9BCDBBA52-ABEA9F7FDAF"
+      },
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-09-15T23:16:30.501251Z",
+      "raw_unmodified": true,
+      "byte_length": 3251,
+      "sha256": "a97eb08ca99be6f13f2726abcb824bfeb63fadcf47bb449f2ca6560d2d325685",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Settled market: result and settlement_value_dollars populated."
+    },
+    {
+      "file": "rest/series_fee_changes.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /series/fee_changes",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/series/fee_changes?show_historical=true",
+      "query": {
+        "show_historical": "true"
+      },
+      "tickers": {},
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:30.686214Z",
+      "raw_unmodified": true,
+      "byte_length": 24771,
+      "sha256": "566217f76a8bf35c780074eb2ffa076ceae2b9a2d207033cbc9e91bc9b7c7210",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Scheduled series fee changes. NOTE: without show_historical=true this returns an empty array. Contains the undocumented fee_type value 'margin_market_maker_program_fees' and fee_multiplier values 0 and 0.5."
+    },
+    {
+      "file": "rest/series_fee_changes_empty.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /series/fee_changes",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/series/fee_changes?series_ticker=KXHIGHNY",
+      "query": {
+        "series_ticker": "KXHIGHNY"
+      },
+      "tickers": {},
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:30.865075Z",
+      "raw_unmodified": true,
+      "byte_length": 28,
+      "sha256": "6780c8eb7edbb5e1ca3b15166f17cef054befacb2cc8f4bc479c54074a9a2c18",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Empty-result shape for the same endpoint."
+    },
+    {
+      "file": "rest/events_fee_changes.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /events/fee_changes",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/events/fee_changes",
+      "query": {},
+      "tickers": {},
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:31.047080Z",
+      "raw_unmodified": true,
+      "byte_length": 22162,
+      "sha256": "e327231c5d4d3d0e520db6a4d760ba758ff99122044c4d1139791fe8e49795ae",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Event-level fee overrides with scheduled_ts. Note plural 'events'."
+    },
+    {
+      "file": "rest/exchange_status.json",
+      "kind": "rest",
+      "source": "REAL",
+      "endpoint": "GET /exchange/status",
+      "request_url": "https://external-api.kalshi.com/trade-api/v2/exchange/status",
+      "query": {},
+      "tickers": {},
+      "http_status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "captured_at_utc": "2026-09-15T23:16:31.223245Z",
+      "raw_unmodified": true,
+      "byte_length": 667,
+      "sha256": "9c900e19dad1f05812a0c3c40c19253e5962c839b1739481aef3d20244c4f778",
+      "api_base": "https://external-api.kalshi.com/trade-api/v2",
+      "notes": "Exchange and per-shard trading status."
+    },
+    {
+      "file": "websocket/synthetic_error.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "4b6138f86d12401083e559d9aef9852780794da2ba491dacafbb79cf1f4bce48",
+      "byte_length": 95,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_error_subscription_limit.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "3372983e49d21a378cf56dff1f70b2358f34e25b1784b69294624f69a751ff02",
+      "byte_length": 115,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_orderbook_delta_fractional.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "b857cb4714c5d4ef2959058df34a49b5dec42b4eaa0c09f271e435f5c5dbe832",
+      "byte_length": 271,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_orderbook_delta_level_depleted.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "d963befa404f94b9b5770b2664ed3fb3bb65db9e596fb048afb7ad6f8fe66488",
+      "byte_length": 271,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_orderbook_delta_no_positive.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "40189c1f7f97e5be8413ac6756e3af09fcce1eb8c571300aaa100fcc5aa3d367",
+      "byte_length": 270,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_orderbook_delta_no_timestamp.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "c1c37beac6115830d680519654a8b767a92e719a52a753cb43b143bc4e52b6db",
+      "byte_length": 245,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_orderbook_delta_yes_negative.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "6eb312999c566b3a4c1c44107bfe301612bbf54debc9d5ab0c28b3b079dbcde8",
+      "byte_length": 272,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_orderbook_snapshot.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "41bd314ba5c415fc6a7c999e9a19eda6dd7c141a40bac5cc0e78367eb27f5456",
+      "byte_length": 437,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    },
+    {
+      "file": "websocket/synthetic_subscribed_ack.json",
+      "kind": "websocket",
+      "source": "SYNTHETIC",
+      "endpoint": "wss://external-api-ws.kalshi.com/trade-api/ws/v2",
+      "channel": "orderbook_delta",
+      "captured_at_utc": null,
+      "raw_unmodified": false,
+      "sha256": "d413bf68258ef518c37b0d7ba76b5c75340e3fe0577ca4f87cc4b42a7bcd64dd",
+      "byte_length": 101,
+      "notes": "SYNTHETIC. Derived from the shapes in the official WebSocket documentation. The production WebSocket requires authentication (verified: HTTP 401 without credentials), and no API key is configured, so no real message could be captured."
+    }
+  ]
+}

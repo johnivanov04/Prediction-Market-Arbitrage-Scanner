@@ -80,6 +80,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "PLR2004", "S101"]
+# tools/ are operator-run scripts: stdout is their interface, and a linear
+# top-to-bottom procedure is clearer than decomposing for its own sake.
+"tools/**" = ["T20", "PLR0912", "PLR0915", "PLR2004"]
 
 [tool.ruff.lint.flake8-builtins]
 builtins-allowed-modules = ["logging"]

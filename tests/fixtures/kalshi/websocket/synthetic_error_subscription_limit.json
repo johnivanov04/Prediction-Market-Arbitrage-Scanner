@@ -1,0 +1,8 @@
+{
+  "id": 124,
+  "type": "error",
+  "msg": {
+    "code": 26,
+    "msg": "Subscription market limit exceeded"
+  }
+}
