@@ -108,7 +108,11 @@ updates be visible.
 | `clock` | UTC time, three-timestamp provenance, injectable clock | **Implemented** |
 | `config`, `logging` | Settings, structured logging | **Implemented** |
 | `venues/base` | Venue protocol | Planned |
-| `venues/kalshi/*` | Auth, REST, WS, wire models, normalisation, fees | Planned |
+| `venues/kalshi/{models,normalize,fixed_point}` | Wire schema, exact parsing, normalisation | **Implemented** |
+| `venues/kalshi/{auth,client,errors}` | Signing, read-only REST client, typed errors | **Implemented** |
+| `venues/kalshi/{rate_limit,pagination}` | Discovered budgets, streaming cursors | **Implemented** |
+| `venues/kalshi/{websocket,session}` | Authenticated handshake, config wiring | **Implemented** |
+| `venues/kalshi/fees` | Fee computation from versioned schedules | Planned |
 | `ingest/*` | Metadata sync, raw journal, book collector | Planned |
 | `books/*` | Levels, book state, sequence-correct reconstruction, execution depth | Planned |
 | `semantics/*` | Propositions, settlement specs, relations, registry | Planned |
@@ -245,9 +249,10 @@ Each step is independently testable, and the ordering is chosen so that
 correctness infrastructure exists before anything that could produce a claim.
 
 1. ✅ **Foundations** — money, enums, clock, config, logging, tooling
-2. **Wire models + normalisation** — Kalshi Pydantic models mirroring the
+2. ✅ **Wire models + normalisation** — Kalshi Pydantic models mirroring the
    observed schema exactly; golden tests against captured real payloads
-3. **REST client + auth** — signing, rate-limit budgeting, metadata sync
+3. ✅ **REST client + auth** — signing, discovered rate-limit budgeting,
+   streaming pagination, authenticated WebSocket handshake
 4. **Raw journal** — append-only Parquet with full provenance
 5. **Book reconstruction** — snapshot/delta, sequence integrity, derived levels
 6. **Execution-depth engine** — VWAP, breakpoints, limiting leg

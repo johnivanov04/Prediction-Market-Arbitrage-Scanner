@@ -18,7 +18,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = ["KalshiEndpoints", "KalshiEnv", "Settings"]
@@ -27,6 +27,24 @@ __all__ = ["KalshiEndpoints", "KalshiEnv", "Settings"]
 class KalshiEnv(StrEnum):
     DEMO = "demo"
     PROD = "prod"
+
+    @classmethod
+    def _missing_(cls, value: object) -> KalshiEnv | None:
+        """Accept the common spellings people actually type.
+
+        ``production`` and ``prod`` mean the same thing, and getting this wrong
+        is expensive: Kalshi credentials are environment-specific, so a
+        misparsed environment sends a production key to demo and produces a 401
+        that looks exactly like a bad key.
+        """
+        if not isinstance(value, str):
+            return None
+        normalised = value.strip().lower()
+        if normalised in {"prod", "production", "live"}:
+            return cls.PROD
+        if normalised in {"demo", "sandbox", "test"}:
+            return cls.DEMO
+        return None
 
 
 class KalshiEndpoints:
@@ -75,9 +93,20 @@ class Settings(BaseSettings):
     )
 
     # --- Venue -------------------------------------------------------------
-    kalshi_env: KalshiEnv = KalshiEnv.DEMO
-    kalshi_api_key_id: str | None = None
-    kalshi_private_key_path: Path | None = None
+    # Each accepts both the PREDARB_-prefixed name and the plain KALSHI_ name,
+    # so an existing Kalshi setup works without renaming anything.
+    kalshi_env: KalshiEnv = Field(
+        default=KalshiEnv.DEMO,
+        validation_alias=AliasChoices("PREDARB_KALSHI_ENV", "KALSHI_ENVIRONMENT", "KALSHI_ENV"),
+    )
+    kalshi_api_key_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PREDARB_KALSHI_API_KEY_ID", "KALSHI_API_KEY_ID"),
+    )
+    kalshi_private_key_path: Path | None = Field(
+        default=None,
+        validation_alias=AliasChoices("PREDARB_KALSHI_PRIVATE_KEY_PATH", "KALSHI_PRIVATE_KEY_PATH"),
+    )
     kalshi_rest_base_url: str | None = None
     kalshi_ws_url: str | None = None
 

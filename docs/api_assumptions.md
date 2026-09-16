@@ -246,26 +246,77 @@ price level, not a replacement value. Documented example: `"-54.00"`.
 
 A snapshot arrives first on subscription; deltas follow.
 
-### A-09 Sequence gaps — UNRESOLVED (docs are silent on recovery)
-
-The docs say `seq` should be *"checked if you want to guarantee you received
-all the messages"* and is *"used for snapshot/delta consistency"*. They do not
-document:
-
-- whether `seq` is scoped per subscription (`sid`) or per market
-- whether `seq` resets on resubscribe
-- what recovery procedure the exchange expects after a gap
+### A-09 Sequence semantics — evidence separated by strength
 
 This is the highest-risk unknown in Phase 1: a mishandled gap produces a book
-that looks tradeable and is not.
+that looks tradeable and is not. The evidence is therefore recorded in four
+separate categories, and only the first two may support an invariant.
 
-**Our handling — fail closed.** On any gap, duplicate-with-conflict, or
-out-of-order arrival, the affected book is marked `INTEGRITY_UNKNOWN` and
-becomes immediately ineligible for scanning. It only becomes eligible again
-after a fresh snapshot. We track `seq` both per `sid` and per
-`(sid, market_ticker)` during capture and record which one is actually
-contiguous, which resolves the scoping question empirically from our own
-captured data. Until it is resolved, the stricter interpretation governs.
+#### DOCUMENTED
+
+* Two message types on `orderbook_delta`: `orderbook_snapshot` then
+  `orderbook_delta`.
+* The envelope carries `sid` (server-assigned subscription id) and `seq`.
+* `seq` "should be checked if you want to guarantee you received all the
+  messages" and is "used for snapshot/delta consistency".
+* `delta_fp` is a signed relative change, not a replacement value.
+* A snapshot arrives first on subscription.
+
+#### OBSERVED
+
+Nothing yet. The production socket requires authentication (A-24) and no
+credentials are configured, so no live frame has been captured. The WebSocket
+fixtures in the repository are **synthetic** and encode no claim about
+sequencing — they were built from the documentation's examples and deliberately
+do not answer this question.
+
+`tools/ws_sequence_experiment.py` is written and ready to run; it implements
+four controlled observations:
+
+| Experiment | Question |
+| --- | --- |
+| A | One subscription over several markets: does `seq` advance per subscription or per market? |
+| B | Two subscriptions on one connection: distinct `sid`s, each `seq` independently monotonic? |
+| C | `update_subscription` add/remove: does sequencing change, and does a snapshot follow an add? |
+| D | Disconnect/reconnect: `sid` allocation, initial `seq`, any cross-session meaning? |
+
+#### INFERRED
+
+Nothing. Deliberately. The documented phrase "used for snapshot/delta
+consistency" is *suggestive* of a per-subscription counter, but a single
+documented example pair cannot distinguish per-`sid` from per-market from
+connection-global, and inferring one would produce a plausible invariant that
+happens to be wrong.
+
+#### UNKNOWN
+
+* Whether `seq` is connection-global, per-`sid`, per-market or per-channel.
+* Whether `seq` resets on resubscribe, on reconnect, or on snapshot.
+* Whether `seq` is dense (every integer used) or merely increasing. **This
+  matters more than the scope question**: `seq != previous + 1` is only a gap if
+  the counter is dense. If `seq` is merely monotonic, that test produces
+  constant false gaps.
+* What recovery procedure the exchange expects after a gap.
+
+#### Proposed invariant for Step 4 — conservative, pending evidence
+
+Until the above is settled, the reconstructor should adopt the weakest
+assumption that is still safe:
+
+> Track `seq` **per `(sid, market_ticker)`**. Treat *any* observation that is
+> not a strict increase — a repeat, a decrease, or an out-of-order arrival — as
+> loss of integrity for that market's book. Mark it `INTEGRITY_UNKNOWN`,
+> exclude it from scanning, and restore it only via a fresh snapshot.
+
+Note what this does **not** do: it does not treat a numeric skip as a gap,
+because that requires density, which is unknown. It fails closed on the
+properties we can justify and stays silent on the ones we cannot. If experiment
+A shows `seq` is dense and per-`sid`, the invariant can be tightened
+deliberately, with the evidence recorded here.
+
+Step 3 produces the instrument and the proposed invariant. It does not produce
+the answer, and the code contains no gap detection of any kind — a test asserts
+that `SequenceObserver` exposes no gap API.
 
 ### A-10 Subscription limits — UNRESOLVED
 
@@ -661,6 +712,59 @@ justification for the forward-compatibility policy: unknown fields are ignored
 but *reported*, so additions surface in observability instead of either crashing
 ingestion or vanishing silently.
 
+### A-28 Account rate-limit discovery — VERIFIED (docs), UNTESTED (no credentials)
+
+Rate limits are **discoverable**, so nothing is hardcoded:
+
+``GET /account/limits``
+    ``usage_tier`` (basic / advanced / expert / premier / paragon / prime /
+    prestige), plus separate ``read`` and ``write`` objects each carrying
+    ``refill_rate`` (tokens/second) and ``bucket_capacity``. Also ``grants``,
+    describing volume- or manually-granted usage levels.
+
+``GET /account/endpoint_costs``
+    ``default_cost`` plus ``endpoint_costs``, an array of
+    ``{method, path, cost}`` for endpoints that differ from the default.
+
+Both are authenticated but disclose **no** balance, position, order or fill
+data — only rate-limit configuration. That is why Phase 1 calls these two
+``/account`` routes and no others.
+
+`10` is the *current* default cost, not a constant: it is read from the server.
+An account on a different tier, or a future change to a specific endpoint's
+cost, would silently invalidate a hardcoded value.
+
+**Open:** the exact format of the `path` field in `endpoint_costs` (whether it
+includes the `/trade-api/v2` prefix) is unverified until a live call is made.
+The registry looks up whatever template the client passes, so a format mismatch
+degrades to the default cost rather than failing — conservative, but it would
+mean an override was missed.
+
+### A-29 Anonymous rate limits are not documented — UNRESOLVED
+
+The discovered budget describes the **authenticated account**. Nothing states
+that it also describes anonymous public requests.
+
+Rather than model a token bucket whose numbers would be fiction, unauthenticated
+access uses bounded concurrency plus a politeness interval, and relies on
+backoff if a 429 arrives. This is recorded as a deliberate gap, not an oversight.
+
+### A-30 429 responses carry no retry metadata — DOCUMENTED
+
+Current documentation states 429 responses contain neither ``Retry-After`` nor
+``X-RateLimit-*`` headers, and that a 429 carries no penalty: the bucket simply
+keeps refilling.
+
+So the client uses bounded exponential backoff with jitter. It still *reads* a
+``Retry-After`` if one ever appears, and prefers it when present.
+
+### A-31 Demo and production hold different data — OBSERVED
+
+The same public call returns different results per environment: 147 historical
+series fee changes on production versus 72 on demo (2026-09-15). Demo is not a
+mirror, so a fixture captured there is not interchangeable with a production
+one. All committed fixtures are from production.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no
@@ -699,13 +803,16 @@ Ordered by how much damage a wrong guess would do.
    whether the PDF's table ever disagrees with that field.
 3. **A-16 — does `MECNET` net collateral across a mutually-exclusive basket,
    and by how much?** Affects capital and return, not classification.
-4. **A-10 — the numeric per-subscription market limit.**
-5. **A-18 — does any live market have a notional other than `$1.0000`?**
+4. **A-10 — the numeric per-subscription market limit.** Low priority; to be
+   learned from normal operation rather than by probing production.
+5. **A-28 — the `path` format in `endpoint_costs`.** A mismatch silently falls
+   back to the default cost.
+6. **A-18 — does any live market have a notional other than `$1.0000`?**
    ~19,100 markets sampled, all `$1.0000` and all `binary`; no `scalar` market
    observed. Downgraded from unknown to *unobserved*, not closed.
-6. **Maker fees.** Phase 1 models taker execution only, so this is deferred,
+7. **Maker fees.** Phase 1 models taker execution only, so this is deferred,
    but `quadratic_with_maker_fees` exists and the `0.0175` rate is recorded.
-7. **Settlement edge cases.** Void, cancellation, postponement and tie
+8. **Settlement edge cases.** Void, cancellation, postponement and tie
    behaviour are not enumerated in the API docs. Per-series contract terms
    (`contract_terms_url`) are the real source. Until read for a given series,
    its settlement spec stays `UNKNOWN` and its markets are excluded.

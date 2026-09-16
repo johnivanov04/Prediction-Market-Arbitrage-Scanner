@@ -68,6 +68,10 @@ from predarb.venues.kalshi.fixed_point import (
 )
 
 __all__ = [
+    "KalshiAccountLimits",
+    "KalshiBucketLimit",
+    "KalshiEndpointCosts",
+    "KalshiEndpointTokenCost",
     "KalshiEvent",
     "KalshiEventEnvelope",
     "KalshiEventFeeChange",
@@ -87,6 +91,7 @@ __all__ = [
     "KalshiSeriesFeeChange",
     "KalshiSeriesFeeChangesResponse",
     "KalshiSettlementSource",
+    "KalshiUsageLevelGrant",
     "KalshiWsDeltaMsg",
     "KalshiWsEnvelope",
     "KalshiWsErrorMsg",
@@ -509,6 +514,67 @@ class KalshiExchangeStatus(_WireModel):
     trading_active: bool | None = None
     intra_exchange_transfers_active: bool | None = None
     exchange_index_statuses: tuple[KalshiExchangeShardStatus, ...] = ()
+
+
+# --------------------------------------------------------------------------
+# Account limits (authenticated, read-only)
+# --------------------------------------------------------------------------
+# These two endpoints are the authoritative source for rate limiting. They are
+# account-scoped but disclose no balance, position, order or fill data -- only
+# the token budget and per-endpoint costs -- which is why Phase 1 calls them and
+# no other /account route.
+
+
+class KalshiBucketLimit(_WireModel):
+    """One token bucket's configuration."""
+
+    refill_rate: int
+    """Tokens added per second."""
+
+    bucket_capacity: int
+    """Maximum tokens held; also the largest burst after idling."""
+
+
+class KalshiUsageLevelGrant(_WireModel):
+    """A grant raising the account's API usage level."""
+
+    exchange_instance: str | None = None
+    level: str | None = None
+    expires_ts: int | None = None
+    source: str | None = None
+
+
+class KalshiAccountLimits(_WireModel):
+    """``GET /account/limits``.
+
+    ``usage_tier`` is the account's effective Predictions API tier (basic,
+    advanced, expert, premier, paragon, prime, prestige). Read and write budgets
+    are reported separately and are modelled separately.
+    """
+
+    usage_tier: str | None = None
+    read: KalshiBucketLimit | None = None
+    write: KalshiBucketLimit | None = None
+    grants: tuple[KalshiUsageLevelGrant, ...] = ()
+
+
+class KalshiEndpointTokenCost(_WireModel):
+    """One endpoint whose token cost differs from the default."""
+
+    method: str
+    path: str
+    cost: int
+
+
+class KalshiEndpointCosts(_WireModel):
+    """``GET /account/endpoint_costs``.
+
+    ``default_cost`` is currently 10, but it is read rather than assumed: it is
+    account and server configuration, not a constant.
+    """
+
+    default_cost: int
+    endpoint_costs: tuple[KalshiEndpointTokenCost, ...] = ()
 
 
 # --------------------------------------------------------------------------

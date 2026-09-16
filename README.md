@@ -79,8 +79,18 @@ layer, built against real captured payloads.
 - `predarb.domain.fees` — point-in-time resolvable fee configuration
 - `predarb.books.levels` — normalised book levels, ordering, quoted/derived split
 
-Next: REST client and authentication. Book reconstruction, detectors, storage
-and replay remain unbuilt — see `docs/architecture.md` §6 for the build order.
+**Step 3 — transport (read-only)**
+
+- `predarb.venues.kalshi.auth` — one RSA-PSS signing primitive for REST and WS
+- `predarb.venues.kalshi.client` — async REST client with **no write surface**
+- `predarb.venues.kalshi.rate_limit` — budgets discovered from the venue
+- `predarb.venues.kalshi.pagination` — streaming cursor pagination
+- `predarb.venues.kalshi.websocket` — authenticated handshake and subscriptions
+- `predarb.venues.kalshi.errors`, `session` — typed errors, config wiring
+
+Next: book reconstruction, once the WebSocket sequencing question (A-09) is
+settled with live evidence. Detectors, storage and replay remain unbuilt — see
+`docs/architecture.md` §6 for the build order.
 
 ## Development
 
@@ -94,9 +104,33 @@ uv run mypy              # type check (strict)
 uv run pytest            # tests
 ```
 
-Configuration is read from the environment with a `PREDARB_` prefix; copy
-`.env.example` to `.env`. Public Kalshi market data needs no credentials, so
-metadata and order-book capture run unauthenticated.
+Copy `.env.example` to `.env`. Most settings use a `PREDARB_` prefix;
+credentials additionally accept the plain `KALSHI_` names.
 
-`.env`, `*.pem` and `data/` are gitignored. Kalshi API keys are RSA private
-keys — never commit them.
+**Public market data needs no credentials.** Series, events, markets and order
+books are all reachable unauthenticated:
+
+```bash
+uv run python tools/validate_transport.py     # exercises the public REST client live
+```
+
+**Credentials are needed only** for the WebSocket (it rejects unauthenticated
+connections with HTTP 401) and for `GET /account/limits` /
+`GET /account/endpoint_costs`. **Read scope is sufficient and preferred** —
+Phase 1 submits no orders, and a write-scoped key changes nothing.
+
+Store the private key outside the repository and point at it by path:
+
+```bash
+mkdir -p ~/.config/predarb/kalshi
+mv ~/Downloads/kalshi-key.pem ~/.config/predarb/kalshi/kalshi-key.pem
+chmod 600 ~/.config/predarb/kalshi/kalshi-key.pem
+```
+
+then set `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH` and
+`KALSHI_ENVIRONMENT` in `.env`. Kalshi credentials are **environment-specific**:
+a production key does not work against demo, and the 401 looks identical to a
+bad key.
+
+`.env`, `*.pem`, `secrets/` and `data/` are gitignored. Never paste a private
+key into a file in this repository.

@@ -195,3 +195,139 @@ lowest-confidence shape.
 Regenerate with `uv run python tools/capture_fixtures.py`. Validate the layer
 against production with `uv run python tools/validate_live.py`, which proves
 every financial string round-trips byte-for-byte.
+
+---
+
+# Transport layer (Step 3)
+
+## 10. Read-only by construction
+
+Phase 1 must be structurally incapable of submitting an order, not merely
+missing the code. Three independent layers enforce it:
+
+1. **No public write surface.** `KalshiReadOnlyClient` exposes named GET
+   operations only. There is no public `request(method, path, ...)` that would
+   make a POST to `/portfolio/orders` a one-liner. A test enumerates every
+   public method and fails on anything that is not a read, a constructor or
+   `aclose`.
+2. **The transport refuses non-read methods.** `_Transport` is private and
+   raises `ReadOnlyViolationError` for anything outside `{GET, HEAD}`. Adding a
+   write path requires deliberately disabling that guard — a visible, reviewable
+   act rather than an oversight.
+3. **Retries know the difference.** `RetryPolicy.is_retryable` checks the HTTP
+   method, not just the error type. It will not become a generic "retry
+   anything" primitive that a future write path inherits by accident.
+
+A key with **write scope changes none of this**. Read scope is sufficient and
+preferred; write scope simply goes unused.
+
+## 11. Authentication
+
+One signing primitive serves REST and the WebSocket, differing only in the path
+they sign, so the two cannot drift apart.
+
+```
+message = str(timestamp_ms) + METHOD + path      # query stripped, no hostname
+signature = base64(RSA-PSS-SHA256-MGF1(message)) # salt length = digest length
+```
+
+Headers: `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP`,
+`KALSHI-ACCESS-SIGNATURE`.
+
+`signing_path()` is the **only** place a signing path is built, because getting
+it wrong yields a signature valid for a message the server never computes — and
+the resulting 401 is indistinguishable from a bad key:
+
+```
+https://external-api.kalshi.com/trade-api/v2/markets?limit=100&cursor=abc
+  signs as  /trade-api/v2/markets
+  NOT       /markets
+  NOT       /trade-api/v2/markets?limit=100&cursor=abc
+```
+
+The WebSocket handshake signs the **fixed** path `/trade-api/ws/v2` with method
+`GET`, regardless of environment.
+
+**Clock.** The signer takes a `Clock` rather than reading the wall clock, which
+makes signing deterministic in tests and leaves a seam for future skew handling.
+
+**Secrets.** The private key loads from a filesystem path and is never
+serialised, printed, or placed in an exception. `KalshiCredentials`,
+`KalshiSigner`, `AuthHeaders` and the client all override `__repr__`.
+`redact_headers()` masks the three auth headers plus `Authorization`/`Cookie`,
+and errors never carry request headers at all. Key-file permissions are checked
+and **warned** about, never enforced — permission bits mean different things
+across platforms, and a false refusal to start would be worse than a missing
+warning.
+
+## 12. Authentication failure causes
+
+Separated because the remedies are completely different:
+
+| Error | Meaning | Fix |
+| --- | --- | --- |
+| `KalshiAuthenticationError` | 401, cause unclear | Check key id, signing path, environment |
+| `KalshiClockSkewError` | 401 where the venue's text mentions the timestamp | Check local clock sync |
+| `KalshiAuthorizationError` | 403 | Key lacks read scope for this endpoint |
+
+No tolerance window is asserted anywhere: current documentation states none, and
+claiming a number would be inventing a guarantee. Classification is driven only
+by the venue's own wording.
+
+## 13. Rate limiting — discovered, not hardcoded
+
+`GET /account/limits` gives `usage_tier` and separate read/write buckets
+(`refill_rate`, `bucket_capacity`); `GET /account/endpoint_costs` gives
+`default_cost` plus per-endpoint overrides. Both are authoritative and
+per-account.
+
+`10` is the *current* default cost, not a constant. An account on another tier,
+or a change to one endpoint's cost, would silently invalidate a hardcoded value.
+
+Read and write budgets are modelled separately because the venue separates them.
+Phase 1 only ever spends from the read bucket, but representing both prevents a
+future write path from quietly drawing on the read budget.
+
+Timing uses the clock's **monotonic** reading. The wall clock can step backwards
+under NTP correction, which would make the bucket believe it had refilled.
+
+**Unauthenticated access does not get an invented budget.** The discovered
+numbers describe the authenticated account, and nothing documents that they
+describe anonymous traffic (A-29). `ConservativePolicy` uses bounded concurrency
+plus a politeness interval and relies on backoff — honest about what is unknown.
+
+## 14. Retries
+
+Bounded exponential backoff with jitter. Kalshi's 429 carries no penalty and no
+`Retry-After` (A-30), so backing off and retrying is the documented-correct
+response; a `Retry-After` is honoured if one ever appears.
+
+**Every authenticated retry re-signs.** The timestamp is inside the signed
+message, so reusing headers would present the server with a stale — eventually
+replayed — timestamp. This is tested by advancing a clock across a retry and
+asserting both the timestamp and the signature changed.
+
+## 15. Pagination
+
+Streams by default: a metadata sync covers tens of thousands of markets, and
+materialising every page first wastes memory and delays all work.
+
+Safety properties, because an opaque cursor is untrusted input:
+
+- a repeated cursor raises `CursorLoopError` rather than looping;
+- `max_pages` / `max_items` **raise** rather than truncating — a partial
+  metadata sync that reports success would leave the catalogue quietly
+  incomplete;
+- an empty-string cursor terminates, exactly as an absent one does. Kalshi has
+  been observed returning `""`, and treating that as a page would re-request the
+  first page forever.
+
+## 16. Logging
+
+Logged: method, endpoint **template** (`/markets/{ticker}/orderbook`, so errors
+aggregate), status, latency, retry count, correlation id, public tickers.
+
+Never logged: the private key, signatures, auth headers, or raw
+credential-bearing requests. Note that enabling `httpx`/`httpcore` DEBUG logging
+*directly* can still print request headers — predarb's own logging paths never
+do, and `safe_request_log_fields()` is the sanctioned way to log a request.

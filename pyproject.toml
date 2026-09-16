@@ -121,6 +121,10 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    # Live tests contact the real Kalshi API and are excluded by default.
+    # Run them deliberately with: uv run pytest -m live
+    "-m",
+    "not live",
 ]
 markers = [
     "unit: fast, hermetic, no network and no database",
