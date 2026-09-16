@@ -1,0 +1,1 @@
+{"type":"orderbook_delta","sid":1,"seq":11,"msg":{"market_ticker":"KXSWISSLEAGUEGAME-26SEP16LUGSTG-LUG","market_id":"95f6eefd-e1d8-48b3-8299-0612af6ef0f6","price_dollars":"0.3700","delta_fp":"1568.00","side":"yes","ts":"2026-09-16T18:03:49.577073Z","ts_ms":1789581829577}}

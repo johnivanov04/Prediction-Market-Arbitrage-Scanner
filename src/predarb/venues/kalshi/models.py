@@ -95,6 +95,7 @@ __all__ = [
     "KalshiWsDeltaMsg",
     "KalshiWsEnvelope",
     "KalshiWsErrorMsg",
+    "KalshiWsOkMsg",
     "KalshiWsSnapshotMsg",
     "decode_json",
     "unknown_top_level_fields",
@@ -143,6 +144,24 @@ MultiplierField = Annotated[
     BeforeValidator(parse_fee_multiplier),
     PlainSerializer(str, return_type=str),
 ]
+
+
+def _none_to_empty(value: object) -> object:
+    """Treat a JSON ``null`` collection as an empty collection.
+
+    Observed live: ``series.tags`` is ``null`` on 2,777 of 14,098 series,
+    and ``settlement_sources`` / ``additional_prohibitions`` are too.
+
+    This is **not** the same judgement as the one made for prices. An absent
+    price is not zero -- a market with no bid is not bidding $0.00 -- so those
+    fields keep ``None``. A null *collection*, by contrast, has no second
+    reading: there are no tags. Collapsing it to an empty tuple loses nothing
+    and stops a nullable list breaking metadata ingestion.
+    """
+    return () if value is None else value
+
+
+type NullableTuple[T] = Annotated[tuple[T, ...], BeforeValidator(_none_to_empty)]
 
 
 class _WireModel(BaseModel):
@@ -220,13 +239,13 @@ class KalshiSeries(_WireModel):
     ticker: str
     title: str | None = None
     category: str | None = None
-    categories: tuple[str, ...] = ()
-    tags: tuple[str, ...] = ()
+    categories: NullableTuple[str] = ()
+    tags: NullableTuple[str] = ()
     frequency: str | None = None
     contract_url: str | None = None
     contract_terms_url: str | None = None
-    settlement_sources: tuple[KalshiSettlementSource, ...] = ()
-    additional_prohibitions: tuple[str, ...] = ()
+    settlement_sources: NullableTuple[KalshiSettlementSource] = ()
+    additional_prohibitions: NullableTuple[str] = ()
     fee_type: str | None = None
     """Not an enum: ``margin_market_maker_program_fees`` was observed live and is
     absent from the documented four-value set."""
@@ -267,7 +286,7 @@ class KalshiEvent(_WireModel):
 
     strike_date: datetime | None = None
     strike_period: str | None = None
-    settlement_sources: tuple[KalshiSettlementSource, ...] = ()
+    settlement_sources: NullableTuple[KalshiSettlementSource] = ()
     fee_type_override: str | None = None
     fee_multiplier_override: MultiplierField | None = None
     last_updated_ts: datetime | None = None
@@ -280,13 +299,13 @@ class KalshiEventEnvelope(_WireModel):
     """``GET /events/{event_ticker}``."""
 
     event: KalshiEvent
-    markets: tuple[KalshiMarket, ...] = ()
+    markets: NullableTuple[KalshiMarket] = ()
 
 
 class KalshiEventsPage(_WireModel):
     """``GET /events``."""
 
-    events: tuple[KalshiEvent, ...] = ()
+    events: NullableTuple[KalshiEvent] = ()
     cursor: str | None = None
 
 
@@ -307,7 +326,7 @@ class KalshiMarket(_WireModel):
     # --- payout and grid ---
     notional_value_dollars: PriceField | None = None
     price_level_structure: str | None = None
-    price_ranges: tuple[KalshiPriceRange, ...] = ()
+    price_ranges: NullableTuple[KalshiPriceRange] = ()
 
     # --- quotes ---
     yes_bid_dollars: PriceField | None = None
@@ -357,7 +376,7 @@ class KalshiMarket(_WireModel):
 
     # --- structure ---
     mve_collection_ticker: str | None = None
-    mve_selected_legs: tuple[KalshiMveLeg, ...] = ()
+    mve_selected_legs: NullableTuple[KalshiMveLeg] = ()
     is_provisional: bool | None = None
     occurrence_datetime: datetime | None = None
     exchange_index: int | None = None
@@ -404,7 +423,7 @@ class KalshiMarketEnvelope(_WireModel):
 class KalshiMarketsPage(_WireModel):
     """``GET /markets``."""
 
-    markets: tuple[KalshiMarket, ...] = ()
+    markets: NullableTuple[KalshiMarket] = ()
     cursor: str | None = None
 
 
@@ -428,8 +447,8 @@ class KalshiOrderbook(_WireModel):
     the documented and observed orderings disagree (A-07).
     """
 
-    yes_dollars: tuple[PriceLevelPair, ...] = ()
-    no_dollars: tuple[PriceLevelPair, ...] = ()
+    yes_dollars: NullableTuple[PriceLevelPair] = ()
+    no_dollars: NullableTuple[PriceLevelPair] = ()
 
 
 class KalshiOrderbookEnvelope(_WireModel):
@@ -462,7 +481,7 @@ class KalshiSeriesFeeChangesResponse(_WireModel):
     Returns an empty array unless ``show_historical=true`` is passed (A-12).
     """
 
-    series_fee_change_arr: tuple[KalshiSeriesFeeChange, ...] = ()
+    series_fee_change_arr: NullableTuple[KalshiSeriesFeeChange] = ()
 
 
 class KalshiEventFeeChange(_WireModel):
@@ -482,7 +501,7 @@ class KalshiEventFeeChange(_WireModel):
 class KalshiEventFeeChangesResponse(_WireModel):
     """``GET /events/fee_changes`` -- note the plural path segment."""
 
-    event_fee_changes: tuple[KalshiEventFeeChange, ...] = ()
+    event_fee_changes: NullableTuple[KalshiEventFeeChange] = ()
     cursor: str | None = None
 
 
@@ -513,7 +532,7 @@ class KalshiExchangeStatus(_WireModel):
     exchange_active: bool | None = None
     trading_active: bool | None = None
     intra_exchange_transfers_active: bool | None = None
-    exchange_index_statuses: tuple[KalshiExchangeShardStatus, ...] = ()
+    exchange_index_statuses: NullableTuple[KalshiExchangeShardStatus] = ()
 
 
 # --------------------------------------------------------------------------
@@ -555,7 +574,7 @@ class KalshiAccountLimits(_WireModel):
     usage_tier: str | None = None
     read: KalshiBucketLimit | None = None
     write: KalshiBucketLimit | None = None
-    grants: tuple[KalshiUsageLevelGrant, ...] = ()
+    grants: NullableTuple[KalshiUsageLevelGrant] = ()
 
 
 class KalshiEndpointTokenCost(_WireModel):
@@ -574,7 +593,7 @@ class KalshiEndpointCosts(_WireModel):
     """
 
     default_cost: int
-    endpoint_costs: tuple[KalshiEndpointTokenCost, ...] = ()
+    endpoint_costs: NullableTuple[KalshiEndpointTokenCost] = ()
 
 
 # --------------------------------------------------------------------------
@@ -591,8 +610,8 @@ class KalshiWsSnapshotMsg(_WireModel):
 
     market_ticker: str
     market_id: str | None = None
-    yes_dollars_fp: tuple[PriceLevelPair, ...] = ()
-    no_dollars_fp: tuple[PriceLevelPair, ...] = ()
+    yes_dollars_fp: NullableTuple[PriceLevelPair] = ()
+    no_dollars_fp: NullableTuple[PriceLevelPair] = ()
 
 
 class KalshiWsDeltaMsg(_WireModel):
@@ -607,9 +626,28 @@ class KalshiWsDeltaMsg(_WireModel):
     price_dollars: PriceField
     delta_fp: QuantityDeltaField
     side: str
+    ts: datetime | None = None
+    """RFC3339 timestamp. **Documented as deprecated** -- the venue says to use
+    ``ts_ms`` instead -- so it is parsed (a recorded frame must round-trip) but
+    nothing derives from it. It does carry finer resolution than ``ts_ms``,
+    which is not worth depending on a field the venue has said to stop using."""
+
     ts_ms: int | None = None
     client_order_id: str | None = None
     subaccount: int | None = None
+
+
+class KalshiWsOkMsg(_WireModel):
+    """``msg`` of an ``ok`` frame.
+
+    The documented response to ``update_subscription``; it lists the resulting
+    market set. It carries ``sid`` and ``seq`` on the envelope and therefore
+    **consumes a sequence number**, which matters for reconstruction: not every
+    value in a sid's sequence is an order-book message for a market you track,
+    so sequence validation has to run before type routing.
+    """
+
+    market_tickers: NullableTuple[str] = ()
 
 
 class KalshiWsErrorMsg(_WireModel):

@@ -13,6 +13,7 @@ from predarb.venues.kalshi.models import decode_json
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "kalshi"
 REST_DIR = FIXTURE_ROOT / "rest"
 WS_DIR = FIXTURE_ROOT / "websocket"
+REAL_WS_DIR = FIXTURE_ROOT / "websocket_real"
 
 
 def load_raw(relative: str) -> bytes:
@@ -41,3 +42,8 @@ def rest_fixture_names() -> list[str]:
 
 def ws_fixture_names() -> list[str]:
     return sorted(p.name for p in WS_DIR.glob("*.json"))
+
+
+def real_ws_fixture_names() -> list[str]:
+    """Real captured WebSocket frames, kept separate from the synthetic ones."""
+    return sorted(p.name for p in REAL_WS_DIR.glob("*.json"))

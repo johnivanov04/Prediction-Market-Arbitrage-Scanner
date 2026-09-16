@@ -276,7 +276,11 @@ class ConservativePolicy:
     in-flight requests and enforces a minimum spacing, and lets the retry layer
     handle a 429 if the real limit is tighter than we guessed.
 
-    ``min_interval_s`` is a politeness floor, not a claimed limit.
+    ``min_interval_s`` is a politeness floor, not a claimed limit. The defaults
+    were tightened after a wide metadata scan produced sustained 429s: at 10
+    tokens per request, the observed Basic read budget of 200 tokens/second
+    allows ~20 requests/second, and pacing near that ceiling leaves no headroom
+    for anything else sharing the key. ~8/second does.
     """
 
     __slots__ = (
@@ -289,7 +293,7 @@ class ConservativePolicy:
     )
 
     def __init__(
-        self, clock: Clock, *, max_concurrency: int = 4, min_interval_s: float = 0.05
+        self, clock: Clock, *, max_concurrency: int = 3, min_interval_s: float = 0.12
     ) -> None:
         if max_concurrency <= 0:
             raise ValueError(f"max_concurrency must be positive, got {max_concurrency}")

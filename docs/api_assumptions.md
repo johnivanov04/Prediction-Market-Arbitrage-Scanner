@@ -246,77 +246,131 @@ price level, not a replacement value. Documented example: `"-54.00"`.
 
 A snapshot arrives first on subscription; deltas follow.
 
-### A-09 Sequence semantics — evidence separated by strength
+### A-09 Sequence semantics — RESOLVED by live experiment (2026-09-16)
 
-This is the highest-risk unknown in Phase 1: a mishandled gap produces a book
-that looks tradeable and is not. The evidence is therefore recorded in four
-separate categories, and only the first two may support an invariant.
+The highest-risk unknown in Phase 1, now settled with production evidence.
+**2,764 frames** across 5 connections, gathered by
+`tools/ws_sequence_experiment.py`.
 
 #### DOCUMENTED
 
-* Two message types on `orderbook_delta`: `orderbook_snapshot` then
+* Two message types on `orderbook_delta`: `orderbook_snapshot`, then
   `orderbook_delta`.
 * The envelope carries `sid` (server-assigned subscription id) and `seq`.
 * `seq` "should be checked if you want to guarantee you received all the
-  messages" and is "used for snapshot/delta consistency".
-* `delta_fp` is a signed relative change, not a replacement value.
+  messages"; "used for snapshot/delta consistency".
+* `delta_fp` is a signed relative change.
 * A snapshot arrives first on subscription.
 
 #### OBSERVED
 
-Nothing yet. The production socket requires authentication (A-24) and no
-credentials are configured, so no live frame has been captured. The WebSocket
-fixtures in the repository are **synthetic** and encode no claim about
-sequencing — they were built from the documentation's examples and deliberately
-do not answer this question.
+**`seq` is scoped per `sid`, and is dense within it.** Every candidate scope was
+measured over the same frames:
 
-`tools/ws_sequence_experiment.py` is written and ready to run; it implements
-four controlled observations:
+| Scope | Streams | Adjacent pairs | Advance by +1 | Skips | Dups | Decreases | Density |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **SID** | 6 | **2,752** | **2,752** | **0** | **0** | **0** | **1.0000** |
+| CONNECTION | 5 | 2,753 | 2,749 | 2 | 0 | 2 | 0.9985 |
+| SID_MARKET | 15 | 2,741 | 2,735 | 6 | 0 | 0 | 0.9978 |
+| MARKET | 14 | 2,742 | 2,732 | 8 | 0 | 2 | 0.9964 |
 
-| Experiment | Question |
-| --- | --- |
-| A | One subscription over several markets: does `seq` advance per subscription or per market? |
-| B | Two subscriptions on one connection: distinct `sid`s, each `seq` independently monotonic? |
-| C | `update_subscription` add/remove: does sequencing change, and does a snapshot follow an add? |
-| D | Disconnect/reconnect: `sid` allocation, initial `seq`, any cross-session meaning? |
+SID is the **only** scope with a perfect result, and every individual sid stream
+is perfectly dense:
+
+| session / sid | Frames | Range | Composition |
+| --- | ---: | --- | --- |
+| 1 / 1 | 289 | 1 → 289 | 4 snapshots, 285 deltas |
+| 2 / 1 | 1,493 | 1 → 1,493 | 4 snapshots, 1,489 deltas |
+| 2 / 2 | 6 | 1 → 6 | 6 trades |
+| 3 / 1 | 753 | 1 → 753 | 2 snapshots, 749 deltas, 2 `ok` |
+| 4 / 1 | 97 | 1 → 97 | 2 snapshots, 95 deltas |
+| 5 / 1 | 120 | 1 → 120 | 2 snapshots, 118 deltas |
+
+**Experiment A — one subscription, several markets.** All markets share a single
+`sid`, and their frames interleave in one dense sequence. `seq` is *not*
+per-market.
+
+**Experiment B — two subscriptions, one connection.** Two subscribes to the
+*same* channel do **not** create a second sid: the server merges the markets
+into the existing subscription. Distinct sids require **distinct channels**
+(`orderbook_delta` → sid 1, `ticker` → sid 2, `trade` → sid 3). With two live
+sids on one socket, both started at `seq = 1` independently. The decisive
+interleave:
+
+```
+idx=126  sid=1  seq=125  orderbook_delta
+idx=127  sid=2  seq=1    trade            <- second sid opens its own sequence
+idx=128  sid=1  seq=126  orderbook_delta  <- first sid continues, unaffected
+```
+
+A connection-global counter cannot produce this. It is also why the CONNECTION
+row above shows *decreases*.
+
+**Experiment C — `update_subscription`.** `add_markets` kept the same `sid` and
+delivered exactly **one** snapshot for the added market, numbered **250** —
+mid-stream, not at 1. `delete_markets` stopped that market's frames while the
+original market continued uninterrupted. Sequence numbering was unbroken
+throughout.
+
+**Experiment D — reconnect.** Both reconnects were assigned `sid = 1` and
+restarted at `seq = 1`. **Sequence state does not survive a connection.**
+
+**Not every frame carries `seq`.** `ticker` frames were observed with no `seq`
+at all, and the `subscribed` acknowledgement carries its `sid` inside `msg`
+rather than on the envelope.
+
+**Non-market-data frames consume sequence numbers.** The `ok` frame (the
+documented response to `update_subscription`) occupies a slot in the sid's
+sequence. A reconstructor must not assume every value in a sid's sequence is an
+order-book message for a market it tracks.
 
 #### INFERRED
 
-Nothing. Deliberately. The documented phrase "used for snapshot/delta
-consistency" is *suggestive* of a per-subscription counter, but a single
-documented example pair cannot distinguish per-`sid` from per-market from
-connection-global, and inferring one would produce a plausible invariant that
-happens to be wrong.
+* `seq` is dense per `sid` **in the general case**. 2,752 consecutive pairs with
+  zero exceptions is strong, but it is a sample from one account, one venue
+  shard, and roughly fifteen minutes of trading. It is a sound basis for an
+  implementation invariant; it is not an exchange guarantee.
+* A skip within a sid therefore indicates message loss. This follows from
+  density, and density is observed rather than documented.
 
 #### UNKNOWN
 
-* Whether `seq` is connection-global, per-`sid`, per-market or per-channel.
-* Whether `seq` resets on resubscribe, on reconnect, or on snapshot.
-* Whether `seq` is dense (every integer used) or merely increasing. **This
-  matters more than the scope question**: `seq != previous + 1` is only a gap if
-  the counter is dense. If `seq` is merely monotonic, that test produces
-  constant false gaps.
-* What recovery procedure the exchange expects after a gap.
+* Whether the exchange *guarantees* density, or merely exhibits it. Nothing in
+  the documentation promises it.
+* The expected recovery procedure after a gap. Not documented; our answer is to
+  resnapshot.
+* Whether `seq` ever wraps, and at what value. The longest stream observed
+  reached 1,493.
+* Whether a skip can occur legitimately under load, backpressure, or on a shard
+  other than the one observed.
+* Whether every channel numbers its sid the same way. Confirmed for
+  `orderbook_delta` and `trade`; `ticker` carries no `seq` at all.
 
-#### Proposed invariant for Step 4 — conservative, pending evidence
+#### Invariant for Step 4
 
-Until the above is settled, the reconstructor should adopt the weakest
-assumption that is still safe:
+The evidence contradicts the previous tentative `(sid, market_ticker)` design,
+which shows 6 skips and would fire spurious gap alerts. The corrected invariant:
 
-> Track `seq` **per `(sid, market_ticker)`**. Treat *any* observation that is
-> not a strict increase — a repeat, a decrease, or an out-of-order arrival — as
-> loss of integrity for that market's book. Mark it `INTEGRITY_UNKNOWN`,
-> exclude it from scanning, and restore it only via a fresh snapshot.
+> **Track `seq` per `(connection, sid)`.** The first frame of a sid establishes
+> the baseline; every subsequent frame carrying a `seq` must equal
+> `expected_seq`. Anything else — a skip, a repeat, or a decrease — invalidates
+> **every book belonging to that sid**, not just the market named in the frame,
+> because the counter is shared across markets and a hole could have carried any
+> of them. Invalidated books become `INTEGRITY_UNKNOWN`, are excluded from
+> scanning, and are restored only by a fresh snapshot.
+>
+> Frames without a `seq` are passed through without advancing the counter.
+> Sequence state is per-connection and is discarded on disconnect.
 
-Note what this does **not** do: it does not treat a numeric skip as a gap,
-because that requires density, which is unknown. It fails closed on the
-properties we can justify and stays silent on the ones we cannot. If experiment
-A shows `seq` is dense and per-`sid`, the invariant can be tightened
-deliberately, with the evidence recorded here.
+Two consequences worth stating explicitly, because both are easy to get wrong:
 
-Step 3 produces the instrument and the proposed invariant. It does not produce
-the answer, and the code contains no gap detection of any kind — a test asserts
-that `SequenceObserver` exposes no gap API.
+* **A gap invalidates the whole sid, not one market.** With one counter per
+  subscription, a missing frame could have belonged to any subscribed market.
+  Invalidating only the market named in the *next* frame would leave the
+  genuinely affected book silently stale.
+* **A snapshot is not special.** It takes the next number in the sid's sequence
+  like anything else — observed at 250 mid-stream after `add_markets`. Treating
+  a snapshot as a sequence reset would discard a real gap.
 
 ### A-10 Subscription limits — UNRESOLVED
 
@@ -765,6 +819,149 @@ series fee changes on production versus 72 on demo (2026-09-15). Demo is not a
 mirror, so a fixture captured there is not interchangeable with a production
 one. All committed fixtures are from production.
 
+### A-32 The default `/markets` listing is ~100% combo markets — VERIFIED (live)
+
+Measured 2026-09-16 on production, paging `GET /markets?status=open`:
+
+* **29,998 of 30,000** markets returned carry `mve_collection_ticker` (combo).
+* The first non-combo market appears at position **16,772**.
+* In the first 6,000, exactly **one** market had any resting size.
+
+Enumerating series and querying per series instead found **1,222** quoting
+non-combo markets out of 1,872 examined.
+
+**Consequence.** Any scan that pages the default listing a few thousand deep
+and skips combos evaluates *zero* real candidates, and will report "no active
+markets" — a statement about listing order, not about the exchange. Market
+discovery must go through `GET /series` and then per-series market queries.
+
+### A-33 `status` query filter and `status` field use different vocabularies — VERIFIED (live)
+
+| Filter value | Result |
+| --- | --- |
+| `open` | markets whose `status` field is `active` |
+| `unopened` | `status` field is `initialized` |
+| `closed` | `status` field is `closed` or `determined` |
+| `active` | **HTTP 400** `"invalid status filter"` |
+
+Passing the field's own value as a filter is rejected. The two vocabularies
+overlap enough to be confusing and must not be used interchangeably.
+
+### A-34 `no_bid_size_fp` is routinely absent from list responses — VERIFIED (live)
+
+Of 1,222 quoting non-combo markets found, **every one** quoted only the YES
+side in the listing; `no_bid_size_fp` was absent or zero throughout, including
+on markets with six-figure 24-hour volume.
+
+A selector requiring both sides therefore matches nothing. The order book
+itself often *does* have NO-side levels — the field is a summary that is
+frequently not populated, not a statement that the side is empty.
+
+### A-35 Collection fields arrive as JSON `null` — VERIFIED (live)
+
+Sampling 14,098 series and 500 markets:
+
+| Field | `null` occurrences |
+| --- | ---: |
+| `series.tags` | 2,777 (20%) |
+| `series.settlement_sources` | 7 |
+| `series.additional_prohibitions` | 1 |
+
+A model declaring these as non-nullable arrays **crashes on real data**; this
+was found by a live metadata scan failing, not in review. Every collection
+field now coerces `null` to an empty tuple.
+
+Note this is the opposite judgement to the one made for prices: an absent price
+stays `None` because "no bid" is not "$0.00", whereas a null list has no second
+reading.
+
+### A-36 `orderbook_delta` carries both `ts` and `ts_ms` — DOCUMENTED (`ts` deprecated)
+
+Every real `orderbook_delta` observed carries both:
+
+```json
+"ts": "2026-09-16T17:54:15.469939Z",
+"ts_ms": 1789581255469
+```
+
+**Current documentation documents both**, and marks `ts` explicitly:
+
+> `ts` (string, optional, **deprecated**) — "Deprecated - Optional timestamp for
+> when the orderbook change was recorded (RFC3339). Use `ts_ms` instead"
+
+**Use `ts_ms`.** An earlier revision of this document recorded `ts` as
+undocumented and preferred it over `ts_ms` on the grounds that it carries
+microseconds. Both halves of that were wrong: it is documented, and it is
+deprecated. The extra resolution is not worth depending on a field the venue
+has said to stop using. `ts` is still parsed when present, so a recorded frame
+round-trips, but nothing derives from it.
+
+*Historical note:* both fields were first noticed empirically in captured
+frames, before the documentation was re-checked — which is why the earlier
+revision misclassified them.
+
+Deltas were also observed arriving in same-timestamp pairs of equal magnitude
+and opposite sign (`-1568.00` then `+1568.00`) — resting size moving between
+price levels.
+
+### A-37 `ok` control frames carry `sid` and `seq` — DOCUMENTED
+
+`update_subscription` is answered with an `ok` frame. Current documentation
+shows it verbatim, including both fields:
+
+```json
+{"type": "ok", "id": 123, "sid": 456, "seq": 222, "msg": { ... }}
+```
+
+Observed live, confirming the shape:
+
+```json
+{"type":"ok","id":2,"sid":1,"seq":1,"msg":{"market_tickers":[...]}}
+```
+
+**A control frame therefore consumes a sequence number.** This is the single
+most consequential detail for reconstruction: sequence validation must happen
+*before* type routing, because a reconstructor that filters to order-book
+messages and only then checks `seq` will see a phantom gap every time a control
+frame passes.
+
+*Historical note:* first discovered empirically in a captured frame; the
+documentation was then re-checked and does describe it.
+
+#### `update_subscription` actions — DOCUMENTED
+
+`add_markets`, `delete_markets`, `get_snapshot` (plus index/underlying variants
+for the CF Benchmarks and Pyth channels, which Phase 1 does not use).
+
+Observed: `add_markets` keeps the same `sid` and emits one snapshot for the
+added market, numbered mid-stream; `delete_markets` stops that market's frames
+while others continue.
+
+### A-38 A snapshot may contain no levels — VERIFIED (live)
+
+Two captured `orderbook_snapshot` frames had empty `yes_dollars_fp` *and*
+`no_dollars_fp`: the markets had finished trading. An empty snapshot is valid
+real data, not a malformed frame, and must not be treated as a parse failure.
+
+### A-39 WebSocket ping/heartbeat cadence — UNRESOLVED
+
+The quick-start states:
+
+> "The Python `websockets` library automatically handles WebSocket ping/pong
+> frames to keep connections alive. No manual heartbeat handling is required."
+
+It does **not** state how often the server sends Ping frames, and neither the
+WebSocket overview nor the connection reference documents a cadence. A specific
+interval (for example "every 10 seconds") could not be confirmed against any
+page reachable from here.
+
+**Consequence for liveness.** Connection health is taken from the WebSocket
+library's own keepalive machinery — which knows when a pong is overdue —
+rather than from an assumed cadence of application JSON traffic. Any timeout we
+configure is **our local safety policy**, not an exchange guarantee. This
+matters because a quiet market legitimately produces no application messages
+for long stretches, so "no JSON recently" is not evidence of a dead connection.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no
@@ -787,13 +984,11 @@ followed with a preference for fixed-point integers; see
 
 Ordered by how much damage a wrong guess would do.
 
-1. **A-09 — `seq` scoping and the expected gap-recovery procedure.** Currently
-   handled by failing closed and resnapshotting. **Blocked on credentials**
-   (A-24): the socket rejects unauthenticated connections, so the controlled
-   observation needed to settle this — one subscription covering several
-   markets, then several subscriptions — cannot be run yet. The synthetic
-   fixtures deliberately do **not** encode an answer, and nothing in the wire
-   layer interprets `seq`.
+1. **A-09 follow-ups.** Scope and density are resolved (per-`sid`, dense over
+   2,752 consecutive pairs). What remains unknown is whether density is
+   *guaranteed* rather than merely exhibited, whether `seq` wraps, and what
+   recovery the exchange expects after a gap. The Step 4 invariant fails closed
+   on all three.
 2. **A-14 — the per-series non-standard multiplier table.** The general
    formulas are now verified, but the fee schedule PDF also carries a table of
    series with non-standard maker/taker multipliers, which is not yet
@@ -827,6 +1022,9 @@ Ordered by how much damage a wrong guess would do.
 | Fee rounding: cent or 6 dp? (A-13) | Resolved: 6 dp per official API docs; third-party "to the cent" is not authoritative |
 | `price_ranges` boundary ownership (A-04) | Resolved: bands are contiguous and whole-step, so adjacent bands always agree; validity is the union |
 | Does the WebSocket need auth? (A-24) | Resolved: yes — HTTP 401 unauthenticated, verified empirically |
+| What is `seq` scoped to? (A-09) | Resolved: per `sid`, dense; 2,752/2,752 pairs advance by exactly one |
+| Is `seq` dense or merely monotonic? (A-09) | Resolved: dense within a sid; zero skips, duplicates or decreases observed |
+| Does `seq` survive reconnect? (A-09) | Resolved: no — both reconnects restarted at `seq = 1` |
 
 ## Sources
 

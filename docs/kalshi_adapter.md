@@ -331,3 +331,81 @@ Never logged: the private key, signatures, auth headers, or raw
 credential-bearing requests. Note that enabling `httpx`/`httpcore` DEBUG logging
 *directly* can still print request headers — predarb's own logging paths never
 do, and `safe_request_log_fields()` is the sanctioned way to log a request.
+
+---
+
+# WebSocket sequencing (A-09 resolved)
+
+## 17. Market discovery
+
+Finding markets that emit order-book traffic is not a one-liner. The default
+`GET /markets` listing is **~100% combo markets** (29,998 of 30,000 measured;
+first non-combo at position 16,772), and combos almost never quote. A scan that
+pages the listing and skips combos evaluates zero candidates and concludes "no
+active markets" — a statement about listing order, not about the exchange.
+
+`market_discovery.py` enumerates series and queries markets per series instead,
+ranking by 24-hour volume, then open interest, then currently quoted size, with
+a penalty for markets minutes from close unless they are very busy. The same
+scan that found nothing before finds **1,222** quoting markets.
+
+A single quoted side is sufficient: `no_bid_size_fp` is routinely absent from
+list responses even on heavily traded markets (A-34), so requiring both sides
+selects nothing.
+
+## 18. What `seq` actually is
+
+Resolved by live experiment over 2,764 frames (A-09):
+
+**`seq` is scoped per `sid`, and is dense within it.** 2,752 adjacent pairs, all
+advancing by exactly one, zero skips, duplicates or decreases. Every other
+candidate scope — connection-global, per-market, per-(sid, market) — shows
+violations on the same data.
+
+Facts a reconstructor has to respect:
+
+| Fact | Consequence |
+| --- | --- |
+| One subscription covers many markets under one `sid` | A gap could belong to any of them |
+| Two subscribes to the same channel **merge** into one sid | Distinct sids need distinct channels |
+| Each sid starts at `seq = 1` independently | Never compare `seq` across sids |
+| `seq` restarts at 1 after reconnect | Sequence state is per-connection; discard it on disconnect |
+| Snapshots take the next number in the stream | A snapshot at seq 250 was observed after `add_markets`; a snapshot is not a reset |
+| `ok` control frames carry `sid`/`seq` (documented) | Sequence must be checked **before** type routing, or control frames read as phantom gaps |
+| `ticker` frames carry no `seq` | Pass through without advancing the counter |
+
+## 19. The Step 4 invariant
+
+> Track `seq` per `(connection, sid)`. Every frame carrying a `seq` must equal
+> `expected_seq`. A skip, repeat or decrease invalidates **every book belonging
+> to that sid** — not just the market named in the frame — because the counter
+> is shared and the hole could have carried any market. Invalidated books become
+> `INTEGRITY_UNKNOWN`, are excluded from scanning, and are restored only by a
+> fresh snapshot.
+
+This replaces the earlier tentative `(sid, market_ticker)` design, which the
+evidence contradicts: per-market grouping shows 6 skips on healthy data and
+would fire spurious gap alerts.
+
+Where it still fails closed: density is **observed, not guaranteed**. Nothing in
+the documentation promises it, wrap-around behaviour is unknown, and only two
+channels were confirmed to number their sids this way. The invariant treats any
+deviation as loss rather than assuming the exchange is well-behaved.
+
+## 20. Fixtures: real vs synthetic
+
+| Directory | Contents |
+| --- | --- |
+| `rest/` | REAL — unmodified production REST bodies |
+| `websocket_real/` | REAL — unmodified production WebSocket frames from the A-09 run |
+| `websocket/` | SYNTHETIC — documentation-derived, retained only for cases not observed live |
+
+Real frames are captured by `tools/ws_sequence_experiment.py`, which clears the
+directory at the start of each run: two runs writing the same filenames would
+interleave frames from different sessions into one apparent stream, which looks
+exactly like a sequence violation and would corrupt the evidence. Only message
+bodies are stored; handshake headers never reach the writer.
+
+The synthetic `subscribed` acknowledgement was the lowest-confidence guess in
+Step 2. The real frames confirm its shape — `sid` does live inside `msg` rather
+than on the envelope.

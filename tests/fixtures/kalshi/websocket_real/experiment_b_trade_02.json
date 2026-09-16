@@ -1,0 +1,1 @@
+{"type":"trade","sid":2,"seq":3,"msg":{"trade_id":"072206f5-cc99-aaf5-f708-98a04973254e","market_ticker":"KXSWISSLEAGUEGAME-26SEP16LUGSTG-LUG","yes_price_dollars":"0.9900","no_price_dollars":"0.0100","count_fp":"24.00","taker_side":"no","taker_outcome_side":"no","taker_book_side":"ask","is_block_trade":false,"ts":1789581934,"ts_ms":1789581934126}}

@@ -19,7 +19,13 @@ import pytest
 from pydantic import BaseModel
 
 from predarb.venues.kalshi.models import KalshiWsEnvelope, decode_json
-from tests.conftest import FIXTURE_ROOT, load_raw, rest_fixture_names, ws_fixture_names
+from tests.conftest import (
+    FIXTURE_ROOT,
+    load_raw,
+    real_ws_fixture_names,
+    rest_fixture_names,
+    ws_fixture_names,
+)
 from tests.unit.test_kalshi_wire_models import REST_MODELS
 
 pytestmark = pytest.mark.integration
@@ -28,9 +34,11 @@ pytestmark = pytest.mark.integration
 class TestManifestIntegrity:
     def test_manifest_lists_every_fixture_file(self, manifest):
         listed = {entry["file"] for entry in manifest["fixtures"]}
-        on_disk = {f"rest/{n}" for n in rest_fixture_names()} | {
-            f"websocket/{n}" for n in ws_fixture_names()
-        }
+        on_disk = (
+            {f"rest/{n}" for n in rest_fixture_names()}
+            | {f"websocket/{n}" for n in ws_fixture_names()}
+            | {f"websocket_real/{n}" for n in real_ws_fixture_names()}
+        )
         assert on_disk == listed
 
     def test_recorded_hashes_match_the_files(self, manifest):
@@ -46,7 +54,10 @@ class TestManifestIntegrity:
             if entry["source"] == "REAL":
                 assert entry["captured_at_utc"], f"{entry['file']} has no capture time"
                 assert entry["raw_unmodified"] is True
-                assert entry["http_status"] == 200
+                # Only REST entries carry an HTTP status; WebSocket frames
+                # arrive over an already-established socket.
+                if entry["kind"] == "rest":
+                    assert entry["http_status"] == 200
 
     def test_synthetic_fixtures_are_labelled_everywhere(self, manifest):
         for entry in manifest["fixtures"]:

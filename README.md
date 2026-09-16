@@ -88,8 +88,12 @@ layer, built against real captured payloads.
 - `predarb.venues.kalshi.websocket` — authenticated handshake and subscriptions
 - `predarb.venues.kalshi.errors`, `session` — typed errors, config wiring
 
-Next: book reconstruction, once the WebSocket sequencing question (A-09) is
-settled with live evidence. Detectors, storage and replay remain unbuilt — see
+**A-09 resolved** (2026-09-16): `seq` is scoped per `sid` and is dense —
+2,752 adjacent pairs, all advancing by exactly one, zero exceptions. Every
+other candidate scope shows violations. See `docs/api_assumptions.md` A-09 for
+the evidence and the resulting Step 4 invariant.
+
+Next: book reconstruction. Detectors, storage and replay remain unbuilt — see
 `docs/architecture.md` §6 for the build order.
 
 ## Development
