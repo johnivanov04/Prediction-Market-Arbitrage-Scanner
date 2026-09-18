@@ -49,6 +49,7 @@ independent status axes on every opportunity record.
 | [docs/arbitrage_definitions.md](docs/arbitrage_definitions.md) | Formal definitions, the four opportunity structures, and the traps |
 | [docs/api_assumptions.md](docs/api_assumptions.md) | Verified Kalshi API findings, discrepancies, and open questions |
 | [docs/kalshi_adapter.md](docs/kalshi_adapter.md) | Wire schema, fixed-point parsing, forward-compatibility policy, normalisation |
+| [docs/reconstruction.md](docs/reconstruction.md) | Sequence invariant, book state machine, recovery, raw journal |
 | docs/replay.md | *(planned)* Replay and point-in-time guarantees |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict

@@ -58,6 +58,7 @@ __all__ = [
     "ObservedFrame",
     "SequenceObserver",
     "WebSocketAuthError",
+    "WebSocketIdle",
 ]
 
 logger = get_logger(__name__)
@@ -65,6 +66,20 @@ logger = get_logger(__name__)
 ORDERBOOK_DELTA_CHANNEL: Final = "orderbook_delta"
 _DEFAULT_OPEN_TIMEOUT: Final = 20.0
 _DEFAULT_RECV_TIMEOUT: Final = 30.0
+
+
+class WebSocketIdle(KalshiError):  # noqa: N818
+    """No application frame arrived within the receive window.
+
+    **Not a connection failure.** A quiet market legitimately sends nothing for
+    long stretches while the socket stays healthy -- the protocol's own
+    ping/pong keeps it alive without any application traffic. Treating idleness
+    as death would drop the connection on exactly the markets that are calmest,
+    which is both wasteful and a source of spurious resnapshots.
+
+    Distinct from :class:`~predarb.venues.kalshi.errors.KalshiTransportError`
+    so callers can loop on one and reconnect on the other.
+    """
 
 
 class WebSocketAuthError(KalshiError):
@@ -316,18 +331,46 @@ class KalshiWebSocketClient:
     async def unsubscribe(self, sids: Sequence[int]) -> int:
         return await self._send_command({"cmd": "unsubscribe", "params": {"sids": list(sids)}})
 
-    async def receive(self) -> ObservedFrame:
+    async def ping(self, *, timeout: float = 10.0) -> float | None:
+        """Send a protocol Ping and wait for the Pong. Returns the RTT.
+
+        This is the *transport-level* liveness signal, and it is the right one
+        to use: a quiet market sends no application frames for long stretches
+        while the socket remains perfectly healthy, so "no JSON recently" proves
+        nothing. A Pong does.
+
+        The ``websockets`` library answers incoming Pings automatically; this
+        asks the question in the other direction so we get a positive answer
+        rather than inferring health from silence.
+
+        Returns ``None`` if no Pong arrives in time, which *is* evidence the
+        connection is broken.
+        """
+        connection = self._require_connection()
+        try:
+            pong_waiter = await connection.ping()
+            return await asyncio.wait_for(pong_waiter, timeout=timeout)
+        except (TimeoutError, websockets.WebSocketException, OSError):
+            return None
+
+    async def receive(self, *, timeout: float | None = None) -> ObservedFrame:
         """Receive one frame, parse it, and record it with the observer.
+
+        Raises :class:`WebSocketIdle` when the window elapses with no
+        application frame, and :class:`KalshiTransportError` only when the
+        socket has actually failed. The distinction matters: a silent market is
+        not a broken connection.
 
         A frame that fails to parse is still returned, with ``parse_error`` set.
         Discarding it would throw away exactly the evidence needed to understand
         an unexpected message shape.
         """
         connection = self._require_connection()
+        window = self._recv_timeout if timeout is None else timeout
         try:
-            raw = await asyncio.wait_for(connection.recv(), timeout=self._recv_timeout)
+            raw = await asyncio.wait_for(connection.recv(), timeout=window)
         except TimeoutError:
-            raise KalshiTransportError(f"no WebSocket frame within {self._recv_timeout}s") from None
+            raise WebSocketIdle(f"no application frame within {window}s") from None
         except websockets.WebSocketException as exc:
             raise KalshiTransportError(f"WebSocket receive failed: {type(exc).__name__}") from None
 
@@ -349,6 +392,8 @@ class KalshiWebSocketClient:
         while limit is None or count < limit:
             try:
                 frame = await self.receive()
+            except WebSocketIdle:
+                return  # caller asked for frames; there are none right now
             except KalshiTransportError:
                 return
             count += 1

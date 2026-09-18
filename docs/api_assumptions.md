@@ -943,24 +943,76 @@ Two captured `orderbook_snapshot` frames had empty `yes_dollars_fp` *and*
 `no_dollars_fp`: the markets had finished trading. An empty snapshot is valid
 real data, not a malformed frame, and must not be treated as a parse failure.
 
-### A-39 WebSocket ping/heartbeat cadence — UNRESOLVED
+### A-39 WebSocket keep-alive — DOCUMENTED
 
-The quick-start states:
+There is a dedicated page, `docs.kalshi.com/websockets/connection-keep-alive`:
 
-> "The Python `websockets` library automatically handles WebSocket ping/pong
-> frames to keep connections alive. No manual heartbeat handling is required."
+* Kalshi sends **Ping frames every 10 seconds**, with the body `heartbeat`.
+* Clients are expected to **respond with Pong frames (`0xA`)**.
+* Clients **may initiate their own Ping frames**, and Kalshi responds with Pong.
+* No consequence for non-response is documented.
 
-It does **not** state how often the server sends Ping frames, and neither the
-WebSocket overview nor the connection reference documents a cadence. A specific
-interval (for example "every 10 seconds") could not be confirmed against any
-page reachable from here.
+*Historical note:* an earlier revision recorded this as UNRESOLVED because the
+WebSocket overview, the connection reference and the quick-start none of them
+state a cadence — the quick-start only says the Python `websockets` library
+handles ping/pong automatically. The cadence lives on its own page, which the
+earlier search missed.
 
-**Consequence for liveness.** Connection health is taken from the WebSocket
-library's own keepalive machinery — which knows when a pong is overdue —
-rather than from an assumed cadence of application JSON traffic. Any timeout we
-configure is **our local safety policy**, not an exchange guarantee. This
-matters because a quiet market legitimately produces no application messages
-for long stretches, so "no JSON recently" is not evidence of a dead connection.
+**The liveness design is unchanged, and this confirms it.** Two points matter:
+
+1. The documented mechanism is Ping/Pong at the *protocol* level, not
+   application JSON. That is exactly the separation already implemented: book
+   change time is not connection health, sid JSON activity is not necessarily
+   connection health, and Ping/Pong is.
+2. Our client-initiated probe is explicitly sanctioned — "clients may initiate
+   their own Ping frames, to which Kalshi will respond with Pong". It is kept,
+   because it yields a *positive* answer on demand rather than inferring health
+   from the absence of something.
+
+The 10-second cadence is now a documented fact rather than a guess, but our own
+liveness window remains **our local safety policy**: the documentation states no
+consequence for a missed Pong, so how long to tolerate silence is still our call.
+
+### A-40 `get_snapshot` preserves the sid and numbers in-stream — VERIFIED (live)
+
+`update_subscription` with `action: "get_snapshot"` was exercised against
+production on 2026-09-18. Findings:
+
+| Question | Answer |
+| --- | --- |
+| Does it preserve the `sid`? | **Yes** — every subsequent frame stayed on the same sid |
+| What `seq` do the snapshots get? | Mid-stream and consecutive: `18`, `19` |
+| Does each requested market produce one? | **Yes** — two markets requested, two snapshots |
+| Do deltas interleave afterwards? | **Yes** — 10 deltas arrived among them |
+| Does the sequence stay dense? | **Yes** — contiguous across the whole observation |
+
+So a requested snapshot behaves exactly like the automatic one: it takes the
+next number in the sid's sequence rather than resetting it, and the stream
+continues uninterrupted.
+
+**Not yet used for recovery.** This is a viable future optimisation — it would
+avoid a full reconnect after a gap — but Phase 1 keeps reconnect as the default
+recovery boundary. What is verified here is behaviour on a *healthy* sid; how
+the venue responds to `get_snapshot` on a sid whose sequence we have already
+lost is untested, and that is precisely the case recovery has to handle.
+Correctness before avoiding a reconnect.
+
+### A-41 Application silence is not a liveness signal — VERIFIED (live)
+
+Kalshi's keep-alive is at the *protocol* level (A-39), and a quiet market
+genuinely sends no application frames for minutes at a time.
+
+Measured consequence: a collector that inferred health from application traffic
+dropped and rebuilt the connection **every 30 seconds** on quiet markets. After
+switching to a protocol-level Ping/Pong probe on idle, the same code ran a full
+240-second session on **one connection with zero reconnects**.
+
+The protocol's own Ping/Pong is the correct signal, and the `websockets` library
+exposes it directly: `connection.ping()` returns a waiter that resolves with the
+round-trip time when the Pong arrives. A Pong proves the socket works; silence
+proves nothing. Kalshi explicitly supports client-initiated Pings (A-39). Any
+timeout layered on top is **our local safety policy** — the documentation states
+no consequence for a missed Pong.
 
 ## Differences from the assumptions in the Phase 1 brief
 
@@ -1013,6 +1065,13 @@ Ordered by how much damage a wrong guess would do.
    its settlement spec stays `UNKNOWN` and its markets are excluded.
 
 ### Resolved since the first revision
+
+| Was | Now |
+| --- | --- |
+| Does `get_snapshot` preserve the sid? (A-40) | Resolved: yes, and its snapshot takes the next seq in-stream |
+| Is application silence a liveness signal? (A-41) | Resolved: no — use protocol Ping/Pong |
+| Is there a documented ping cadence? (A-39) | Resolved: yes — every 10s, body `heartbeat`, client responds with Pong |
+
 
 | Was | Now |
 | --- | --- |
