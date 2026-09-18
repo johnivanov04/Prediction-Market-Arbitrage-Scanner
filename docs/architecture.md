@@ -114,7 +114,9 @@ updates be visible.
 | `venues/kalshi/{websocket,session}` | Authenticated handshake, config wiring | **Implemented** |
 | `venues/kalshi/fees` | Fee computation from versioned schedules | Planned |
 | `ingest/*` | Metadata sync, raw journal, book collector | Planned |
-| `books/*` | Levels, book state, sequence-correct reconstruction, execution depth | Planned |
+| `books/{sequence,state,orderbook,registry,events,reconstruction,liveness,recovery}` | Sequence integrity, book state machine, recovery | **Implemented** |
+| `books/{execution,liquidity,multileg}` | Derived asks, depth curves, multi-leg gross cost | **Implemented** |
+| `ingest/{raw_journal,book_collector}` | Append-only journal, live collector | **Implemented** |
 | `semantics/*` | Propositions, settlement specs, relations, registry | Planned |
 | `detectors/*` | `binary_complement`, `group_basket` | Planned |
 | `opportunities/*` | Opportunity record, persistence, audit rendering | Planned |
@@ -253,9 +255,11 @@ correctness infrastructure exists before anything that could produce a claim.
    observed schema exactly; golden tests against captured real payloads
 3. ✅ **REST client + auth** — signing, discovered rate-limit budgeting,
    streaming pagination, authenticated WebSocket handshake
-4. **Raw journal** — append-only Parquet with full provenance
-5. **Book reconstruction** — snapshot/delta, sequence integrity, derived levels
-6. **Execution-depth engine** — VWAP, breakpoints, limiting leg
+4. ✅ **Raw journal** — append-only JSONL with full provenance (Parquet
+   compaction deferred; see `docs/reconstruction.md` §8)
+5. ✅ **Book reconstruction** — snapshot/delta, sequence integrity, fail-closed
+6. ✅ **Execution-depth engine** — derived asks, VWAP, breakpoints, multi-leg
+   gross cost. Deliberately no profitability: that needs fees and payoff.
 7. **Fee engine** — versioned schedules; *blocked on A-14*
 8. **Settlement specs + relations registry** — with the verification workflow
 9. **Payoff engine** — state enumeration, worst-case
@@ -284,5 +288,23 @@ Both are small; the brief invited alternatives with justification.
    primary return type is the schedule of quantity breakpoints and the
    single-quantity query is derived from it. This avoids re-walking the book
    once per candidate size.
+
+3. **`books/reconstruction.py` imports the Kalshi wire envelope — a known
+   deviation.** Rule 2 in §2 says venue representations should not escape
+   `venues/`, and this one does: the reconstructor parses
+   `KalshiWsEnvelope` directly and branches on Kalshi's own message-type
+   strings.
+
+   It is recorded rather than hidden because it is real coupling. The clean
+   shape is a venue-neutral frame event that each adapter emits, with the
+   reconstructor consuming that — at which point a second venue would not
+   require touching `books/` at all. It was not done in Step 4 because there is
+   exactly one venue and inventing the abstraction from a single example tends
+   to produce the wrong abstraction. It should be revisited when a second venue
+   arrives, which is also when its shape will be knowable.
+
+   Note the newer `books/execution.py` has no such import: it consumes
+   `BookView` and `VenueInstrument` only, so the execution layer is already
+   venue-neutral.
 
 Everything else follows the suggested structure.

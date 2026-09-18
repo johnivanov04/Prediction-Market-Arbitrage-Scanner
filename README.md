@@ -50,6 +50,7 @@ independent status axes on every opportunity record.
 | [docs/api_assumptions.md](docs/api_assumptions.md) | Verified Kalshi API findings, discrepancies, and open questions |
 | [docs/kalshi_adapter.md](docs/kalshi_adapter.md) | Wire schema, fixed-point parsing, forward-compatibility policy, normalisation |
 | [docs/reconstruction.md](docs/reconstruction.md) | Sequence invariant, book state machine, recovery, raw journal |
+| [docs/execution.md](docs/execution.md) | Derived asks, executable depth, VWAP, liquidity identity |
 | docs/replay.md | *(planned)* Replay and point-in-time guarantees |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict
@@ -88,6 +89,13 @@ layer, built against real captured payloads.
 - `predarb.venues.kalshi.pagination` — streaming cursor pagination
 - `predarb.venues.kalshi.websocket` — authenticated handshake and subscriptions
 - `predarb.venues.kalshi.errors`, `session` — typed errors, config wiring
+
+**Step 5 — executable depth**
+
+- `predarb.books.execution` — derived asks, breakpoint curves, gross cost
+- `predarb.books.liquidity` — liquidity identity shared by direct and derived views
+- `predarb.books.multileg` — multi-leg gross cost with collision detection
+- `predarb.domain.average_price` — exact VWAP as a ratio, not a price
 
 **A-09 resolved** (2026-09-16): `seq` is scoped per `sid` and is dense —
 2,752 adjacent pairs, all advancing by exactly one, zero exceptions. Every

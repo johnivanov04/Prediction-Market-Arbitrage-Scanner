@@ -16,17 +16,35 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Final
 
 from predarb.domain.enums import SettlementKind, VenueId
 from predarb.domain.money import Price, Quantity
 
 __all__ = [
+    "EXCLUSION_INCONSISTENT_GRID",
+    "EXCLUSION_MULTIVARIATE",
+    "EXCLUSION_NON_BINARY",
+    "EXCLUSION_NO_GRID",
+    "EXCLUSION_NO_NOTIONAL",
+    "EXCLUSION_PROVISIONAL",
     "PriceBand",
     "PriceGrid",
     "VenueEvent",
     "VenueInstrument",
     "VenueSeries",
 ]
+
+
+# Reasons an instrument is excluded from Phase 1. Domain vocabulary rather than
+# venue detail: they describe properties of a contract, and every consumer of
+# VenueInstrument needs to reason about them without importing a venue module.
+EXCLUSION_MULTIVARIATE: Final = "MULTIVARIATE_COMBINATION_MARKET"
+EXCLUSION_PROVISIONAL: Final = "PROVISIONAL_MARKET"
+EXCLUSION_NON_BINARY: Final = "NON_BINARY_SETTLEMENT"
+EXCLUSION_NO_NOTIONAL: Final = "NOTIONAL_VALUE_ABSENT"
+EXCLUSION_NO_GRID: Final = "PRICE_GRID_ABSENT"
+EXCLUSION_INCONSISTENT_GRID: Final = "PRICE_GRID_INCONSISTENT"
 
 
 @dataclass(frozen=True, slots=True)

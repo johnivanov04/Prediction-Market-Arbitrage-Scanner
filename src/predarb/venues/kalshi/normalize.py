@@ -32,7 +32,19 @@ from predarb.books.levels import (
 )
 from predarb.domain.enums import MarketSide, SettlementKind, VenueId
 from predarb.domain.fees import FeeConfiguration, FeeScope, FeeTimeline, ScheduledFeeChange
-from predarb.domain.models import PriceBand, PriceGrid, VenueEvent, VenueInstrument, VenueSeries
+from predarb.domain.models import (
+    EXCLUSION_INCONSISTENT_GRID,
+    EXCLUSION_MULTIVARIATE,
+    EXCLUSION_NO_GRID,
+    EXCLUSION_NO_NOTIONAL,
+    EXCLUSION_NON_BINARY,
+    EXCLUSION_PROVISIONAL,
+    PriceBand,
+    PriceGrid,
+    VenueEvent,
+    VenueInstrument,
+    VenueSeries,
+)
 from predarb.domain.money import Price, Quantity
 from predarb.venues.kalshi.models import (
     KalshiEvent,
@@ -65,12 +77,9 @@ __all__ = [
     "settlement_kind_for",
 ]
 
-EXCLUSION_MULTIVARIATE = "MULTIVARIATE_COMBINATION_MARKET"
-EXCLUSION_PROVISIONAL = "PROVISIONAL_MARKET"
-EXCLUSION_NON_BINARY = "NON_BINARY_SETTLEMENT"
-EXCLUSION_NO_NOTIONAL = "NOTIONAL_VALUE_ABSENT"
-EXCLUSION_NO_GRID = "PRICE_GRID_ABSENT"
-EXCLUSION_INCONSISTENT_GRID = "PRICE_GRID_INCONSISTENT"
+# Re-exported from the domain so existing callers keep working; the constants
+# themselves live beside VenueInstrument, because they describe the contract
+# rather than anything Kalshi-specific.
 
 _MARKET_TYPE_TO_SETTLEMENT = {
     "binary": SettlementKind.BINARY,

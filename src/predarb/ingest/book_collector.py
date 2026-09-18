@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Final
 
 from predarb.books.events import ReconstructionEvent
+from predarb.books.orderbook import BookView
 from predarb.books.reconstruction import OrderBookReconstructor
 from predarb.books.recovery import RecoveryAction, RecoveryCoordinator, RecoveryPolicy
 from predarb.clock import Clock, SystemClock
@@ -75,7 +76,18 @@ class CollectorStats:
     ended_at: datetime | None = None
     events: list[ReconstructionEvent] = field(default_factory=list)
     final_books: list[dict[str, object]] = field(default_factory=list)
-    """Book state captured while the connection was still live."""
+    """Book metrics captured while the connection was still live."""
+
+    final_views: dict[str, BookView] = field(default_factory=dict)
+    """The book views themselves, as they stood while still authoritative.
+
+    Immutable snapshots, so a consumer can quote them after the run without the
+    teardown invalidation making every book unusable. The epoch they belong to
+    is on each view's provenance, so authority can still be reconstructed
+    honestly rather than assumed."""
+
+    final_epoch: int | None = None
+    """The connection epoch :attr:`final_views` were captured under."""
 
 
 class BookCollector:
@@ -182,6 +194,8 @@ class BookCollector:
             # afterwards would show INTEGRITY_UNKNOWN everywhere and say nothing
             # about how the run actually went.
             self.stats.final_books = self._capture_books(reconstructor)
+            self.stats.final_views = reconstructor.books()
+            self.stats.final_epoch = self._registry_epoch(reconstructor)
             if client is not None:
                 await client.close()
             reconstructor.close_connection(self._clock.now(), reason="collector shutdown")
@@ -272,6 +286,10 @@ class BookCollector:
             sid=sid, channel=channel, markets=set(self._markets), at=frame.received_at
         )
         return True
+
+    @staticmethod
+    def _registry_epoch(reconstructor: OrderBookReconstructor) -> int | None:
+        return reconstructor.registry.current_epoch_number
 
     def _capture_books(self, reconstructor: OrderBookReconstructor) -> list[dict[str, object]]:
         """Book state as it stood while the connection was still live."""
