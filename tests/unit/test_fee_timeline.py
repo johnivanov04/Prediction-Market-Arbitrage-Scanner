@@ -17,6 +17,7 @@ from predarb.domain.fees import (
 )
 from predarb.venues.kalshi.models import (
     KalshiEvent,
+    KalshiEventFeeChange,
     KalshiEventFeeChangesResponse,
     KalshiSeries,
     KalshiSeriesFeeChangesResponse,
@@ -251,3 +252,136 @@ class TestBuildFromRealFixtures:
         assert resolved is not None
         assert resolved.configuration.scope is FeeScope.EVENT
         assert resolved.effective_from == target.scheduled_ts
+
+
+def clearing(change_id: str, when: datetime) -> ScheduledFeeChange:
+    """An event change with both overrides null: remove the override."""
+    return ScheduledFeeChange(
+        change_id=change_id,
+        scope=FeeScope.EVENT,
+        scope_ticker="KXTEST-EVENT",
+        scheduled_ts=when,
+    )
+
+
+class TestClearingAnOverride:
+    """Null overrides mean "fall back to the series", not "no data".
+
+    Collapsing the two would leave a superseded override in force forever,
+    which is a point-in-time error: every later book would be priced with a
+    multiplier the venue had already withdrawn.
+    """
+
+    def test_a_null_change_is_recognised_as_clearing(self):
+        assert clearing("c1", T1).clears is True
+        assert change("c1", T1, "0.5").clears is False
+
+    def test_clearing_produces_no_configuration(self):
+        assert clearing("c1", T1).as_configuration() is None
+
+    def test_clearing_restores_the_series_base(self):
+        timeline = FeeTimeline(
+            series_ticker="KXTEST",
+            event_ticker="KXTEST-EVENT",
+            series_base=series_base(multiplier="1"),
+            event_override=FeeConfiguration(
+                fee_type_raw="quadratic",
+                multiplier=Decimal("0.5"),
+                scope=FeeScope.EVENT,
+                scope_ticker="KXTEST-EVENT",
+            ),
+            event_changes=(clearing("c1", T1),),
+        )
+        before = resolved(timeline, T1 - _ONE_MICRO)
+        assert before.configuration.multiplier == Decimal("0.5")
+        assert before.configuration.scope is FeeScope.EVENT
+
+        after = resolved(timeline, T1)
+        assert after.configuration.multiplier == Decimal(1)
+        assert after.configuration.scope is FeeScope.SERIES
+
+    def test_clearing_falls_back_to_a_series_scheduled_change(self):
+        """Not to the series *base* -- to whatever the series says at that time."""
+        timeline = FeeTimeline(
+            series_ticker="KXTEST",
+            event_ticker="KXTEST-EVENT",
+            series_base=series_base(multiplier="1"),
+            series_changes=(change("s1", T0, "0.25"),),
+            event_changes=(change("e1", T0, "0.5", scope=FeeScope.EVENT), clearing("c1", T1)),
+        )
+        assert resolved(timeline, T1 - _ONE_MICRO).configuration.multiplier == Decimal("0.5")
+        assert resolved(timeline, T1).configuration.multiplier == Decimal("0.25")
+
+    def test_a_later_override_can_follow_a_clearing(self):
+        timeline = FeeTimeline(
+            series_ticker="KXTEST",
+            event_ticker="KXTEST-EVENT",
+            series_base=series_base(multiplier="1"),
+            event_changes=(
+                change("e1", T0, "0.5", scope=FeeScope.EVENT),
+                clearing("c1", T1),
+                change("e2", T2, "0", scope=FeeScope.EVENT),
+            ),
+        )
+        assert resolved(timeline, T0).configuration.multiplier == Decimal("0.5")
+        assert resolved(timeline, T1).configuration.multiplier == Decimal(1)
+        assert resolved(timeline, T2).configuration.multiplier == Decimal(0)
+
+    def test_clearing_with_no_series_fallback_resolves_to_nothing(self):
+        """Fail closed: there is no default fee configuration to invent."""
+        timeline = FeeTimeline(
+            series_ticker="KXTEST",
+            event_ticker="KXTEST-EVENT",
+            event_changes=(clearing("c1", T1),),
+        )
+        assert timeline.resolve_at(T1) is None
+
+    def test_a_series_change_cannot_clear(self):
+        """A series is the fallback; it has nothing to fall back to."""
+        with pytest.raises(ValueError, match="only an event override can be cleared"):
+            ScheduledFeeChange(
+                change_id="s1",
+                scope=FeeScope.SERIES,
+                scope_ticker="KXTEST",
+                scheduled_ts=T1,
+            )
+
+    def test_a_half_specified_override_is_refused(self):
+        """Filling in the missing half would be inventing venue behaviour."""
+        partial = ScheduledFeeChange(
+            change_id="e1",
+            scope=FeeScope.EVENT,
+            scope_ticker="KXTEST-EVENT",
+            fee_type_raw="quadratic",
+            scheduled_ts=T1,
+        )
+        assert partial.clears is False
+        with pytest.raises(ValueError, match="sets only one of"):
+            partial.as_configuration()
+
+
+class TestClearingFromTheWire:
+    """The wire model must accept a clearing record without crashing."""
+
+    def test_null_overrides_decode(self):
+        parsed = KalshiEventFeeChange.model_validate(
+            {
+                "id": "c1",
+                "event_ticker": "KXTEST-EVENT",
+                "fee_type_override": None,
+                "fee_multiplier_override": None,
+                "scheduled_ts": "2026-06-01T00:00:00Z",
+            }
+        )
+        assert parsed.fee_type_override is None
+        assert parsed.fee_multiplier_override is None
+
+    def test_absent_overrides_decode(self):
+        parsed = KalshiEventFeeChange.model_validate(
+            {
+                "id": "c1",
+                "event_ticker": "KXTEST-EVENT",
+                "scheduled_ts": "2026-06-01T00:00:00Z",
+            }
+        )
+        assert parsed.fee_type_override is None

@@ -332,6 +332,9 @@ def build_fee_timeline(
         for change in series_changes
         if change.series_ticker == series.ticker
     )
+    # A change with both overrides null is a clearing record, and is carried
+    # through as one: the event falls back to its parent series from that
+    # moment. Dropping it would leave a superseded override in force forever.
     scheduled_event = tuple(
         ScheduledFeeChange(
             change_id=change.id,

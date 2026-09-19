@@ -485,11 +485,21 @@ class KalshiSeriesFeeChangesResponse(_WireModel):
 
 
 class KalshiEventFeeChange(_WireModel):
+    """One scheduled event-level fee override.
+
+    Both override fields are nullable, and null is meaningful rather than
+    missing: the documentation states that a null override "clears any prior
+    override" and the event falls back to its parent series. A model requiring
+    them would reject a legitimate clearing record -- none has been observed in
+    354 sampled live rows, but the schema permits it and ingestion must not
+    crash the first time one appears.
+    """
+
     id: str
     event_ticker: str
     series_ticker: str | None = None
-    fee_type_override: str
-    fee_multiplier_override: MultiplierField
+    fee_type_override: str | None = None
+    fee_multiplier_override: MultiplierField | None = None
     scheduled_ts: datetime
 
     @field_validator("scheduled_ts")

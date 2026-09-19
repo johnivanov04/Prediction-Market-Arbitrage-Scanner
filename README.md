@@ -51,6 +51,7 @@ independent status axes on every opportunity record.
 | [docs/kalshi_adapter.md](docs/kalshi_adapter.md) | Wire schema, fixed-point parsing, forward-compatibility policy, normalisation |
 | [docs/reconstruction.md](docs/reconstruction.md) | Sequence invariant, book state machine, recovery, raw journal |
 | [docs/execution.md](docs/execution.md) | Derived asks, executable depth, VWAP, liquidity identity |
+| [docs/fees.md](docs/fees.md) | Taker fee mechanics, fill-fragmentation limits, exactness classification |
 | docs/replay.md | *(planned)* Replay and point-in-time guarantees |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict

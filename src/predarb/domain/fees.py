@@ -112,22 +112,49 @@ class FeeConfiguration:
 
 @dataclass(frozen=True, slots=True)
 class ScheduledFeeChange:
-    """A fee change with a known effective timestamp."""
+    """A fee change with a known effective timestamp.
+
+    An **event**-scoped change with no fee type and no multiplier is a
+    *clearing* record: the documentation states that null overrides remove any
+    prior override so the event falls back to its parent series. That is a real
+    instruction, not missing data, and collapsing it into "no change" would
+    leave a superseded override in force forever.
+    """
 
     change_id: str
     scope: FeeScope
     scope_ticker: str
-    fee_type_raw: str
-    multiplier: Decimal
     scheduled_ts: datetime
+    fee_type_raw: str | None = None
+    multiplier: Decimal | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scheduled_ts", ensure_utc(self.scheduled_ts))
-        object.__setattr__(
-            self, "multiplier", _require_decimal(self.multiplier, field="ScheduledFeeChange")
-        )
+        if self.multiplier is not None:
+            object.__setattr__(
+                self, "multiplier", _require_decimal(self.multiplier, field="ScheduledFeeChange")
+            )
+        if self.clears and self.scope is FeeScope.SERIES:
+            raise ValueError(
+                f"series fee change {self.change_id} has no fee type or multiplier; "
+                "only an event override can be cleared, since a series is the "
+                "fallback and has nothing to fall back to"
+            )
 
-    def as_configuration(self) -> FeeConfiguration:
+    @property
+    def clears(self) -> bool:
+        """Whether this record removes an override rather than setting one."""
+        return self.fee_type_raw is None and self.multiplier is None
+
+    def as_configuration(self) -> FeeConfiguration | None:
+        """The configuration this change installs, or ``None`` if it clears."""
+        if self.clears:
+            return None
+        if self.fee_type_raw is None or self.multiplier is None:
+            raise ValueError(
+                f"fee change {self.change_id} sets only one of fee_type/multiplier; "
+                "a partial override cannot be resolved without assuming the other half"
+            )
         return FeeConfiguration(
             fee_type_raw=self.fee_type_raw,
             multiplier=self.multiplier,
@@ -189,13 +216,15 @@ class FeeTimeline:
         moment = ensure_utc(instant)
 
         latest = self._latest_change(self.event_changes, moment)
-        if latest is not None:
-            return ResolvedFeeConfiguration(
-                configuration=latest.as_configuration(),
-                effective_from=latest.scheduled_ts,
-                provenance=f"event scheduled change {latest.change_id} on {self.event_ticker}",
-            )
-        if self.event_override is not None:
+        if latest is not None and not latest.clears:
+            configuration = latest.as_configuration()
+            if configuration is not None:
+                return ResolvedFeeConfiguration(
+                    configuration=configuration,
+                    effective_from=latest.scheduled_ts,
+                    provenance=f"event scheduled change {latest.change_id} on {self.event_ticker}",
+                )
+        if latest is None and self.event_override is not None:
             return ResolvedFeeConfiguration(
                 configuration=self.event_override,
                 effective_from=None,
@@ -203,11 +232,17 @@ class FeeTimeline:
             )
         latest = self._latest_change(self.series_changes, moment)
         if latest is not None:
-            return ResolvedFeeConfiguration(
-                configuration=latest.as_configuration(),
-                effective_from=latest.scheduled_ts,
-                provenance=f"series scheduled change {latest.change_id} on {self.series_ticker}",
-            )
+            # A series change always installs a configuration -- only an event
+            # override can be cleared, which ScheduledFeeChange enforces.
+            series_configuration = latest.as_configuration()
+            if series_configuration is not None:
+                return ResolvedFeeConfiguration(
+                    configuration=series_configuration,
+                    effective_from=latest.scheduled_ts,
+                    provenance=(
+                        f"series scheduled change {latest.change_id} on {self.series_ticker}"
+                    ),
+                )
         if self.series_base is not None:
             return ResolvedFeeConfiguration(
                 configuration=self.series_base,

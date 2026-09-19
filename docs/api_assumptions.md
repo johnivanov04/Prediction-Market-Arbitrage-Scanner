@@ -571,6 +571,68 @@ above come from independent review of the current official schedule. The
 per-series non-standard multiplier table in that PDF is still **not**
 transcribed — see the open questions.
 
+#### Which column does `fee_multiplier` scale? — UNKNOWN
+
+The fee schedule presents maker and taker multipliers in separate columns, and
+the API exposes a single `fee_multiplier` per series. Whether that one field is
+the taker column, the maker column, or a factor applied to both is **not stated
+anywhere reachable from this environment**, and nothing in the API's own
+documentation resolves it. The schedule PDF remains HTTP 429 to automated fetch.
+
+The `GET /trade-api/v2/margin/fee_tiers` endpoint does return `maker_fee_rates`
+and `taker_fee_rates` separately (changelog, 2026-06-11), but it does not
+resolve this: it covers **margin** markets on a different fee model entirely
+(a decimal fraction of notional, e.g. `0.0008` = 8bps), not event contracts on
+the quadratic model, and it requires authenticating as a direct margin user —
+account access Phase 1 does not take.
+
+**Machine-readable consequence.** `MultiplierStatus` gates the arbitrage claim:
+
+| Status | When | Effect |
+| --- | --- | --- |
+| `IDENTITY` | `fee_multiplier = 1` | Every reading of the schedule agrees; the ambiguity cannot change the number. `supports_arbitrage_claim` may be true |
+| `UNRESOLVED_MAPPING` | anything else | Figures are still reported as hypotheticals; `supports_arbitrage_claim` is **false** |
+
+This is not a hypothetical restriction. 32 listed series carry `M = 0` or
+`M = 0.5`, and in the `/series/fee_changes` universe it is the common case: of
+the 55 quadratic rows there, 30 are at `M = 0` and 18 at `M = 0.5`, leaving only
+7 arbitrage-eligible.
+
+#### Which fee types can actually be priced — VERIFIED (live, 2026-09-18)
+
+`tools/validate_fees.py` swept the full live series population. `fee_type` and
+the taker rate are **not** the same question: the schedule gives a rate for the
+general quadratic model, not for every `fee_type` the API emits.
+
+Counted over two separately named universes, because `/series` is not
+exhaustive (A-42).
+
+**Listed series** — everything `/series` returns: **14,168**
+
+| State | Count | Share of listing |
+| --- | --- | --- |
+| `BOUNDABLE_FOR_ARB` — quadratic, `M = 1` | 13,973 | 98.62% |
+| `CALCULABLE_ONLY` — quadratic, `M != 1` | 32 | 0.23% |
+| `BLOCKED_UNSUPPORTED_TYPE` | 163 | 1.15% |
+
+By fee type within that listing: `quadratic` 14,005; `quadratic_with_maker_fees`
+160; `quadratic_with_combo_maker_fees` 3. (14,005 + 160 + 3 = 14,168.)
+
+**Addressable but unlisted** — named in `/series/fee_changes`, never returned by
+the listing: **23**, all `margin_market_maker_program_fees`, all blocked.
+
+**Combined**: 13,973 boundable of **14,191**. That universe is the listing plus
+the fee-change tickers it omitted, and is a *lower bound* on what exists.
+
+A previous revision of this document reported "14,004 / 14,167 priceable" with
+unsupported counts of 160 + 3 + 23. **Those numbers do not reconcile**: 23 of
+them are from a different universe, and "priceable" silently included the 32
+series whose multiplier semantics are unresolved. `CoverageCensus` now refuses
+to hold counts that do not sum to their own total.
+
+The maker variants are refused because the names only *imply* the quadratic
+taker leg is unchanged; an implication from a name is not a specification.
+
 #### Rounding: docs vs third-party sources — RESOLVED
 
 Third-party summaries describe the fee as rounded up **to the cent**. The
@@ -1014,6 +1076,89 @@ proves nothing. Kalshi explicitly supports client-initiated Pings (A-39). Any
 timeout layered on top is **our local safety policy** — the documentation states
 no consequence for a missed Pong.
 
+### A-42 The `/series` listing is not exhaustive — VERIFIED (live, 2026-09-18)
+
+Paginating `/series` to exhaustion returns 14,168 series (2026-09-18; the count drifts as series are added). It does **not** return
+every series the API will serve: 23 perpetual-futures series (`KXBTCPERP`,
+`KXETHPERP`, `KXAAVEPERP`, ...) are absent from that listing yet resolve
+normally through `GET /series/{series_ticker}`.
+
+They were found by taking the series tickers appearing in
+`/series/fee_changes` and subtracting the listing. All 23 carry
+`fee_type = "margin_market_maker_program_fees"` and `fee_multiplier = 0`.
+
+Two consequences:
+
+1. **A census built on `/series` under-reports.** Surveying only the listing
+   would conclude `margin_market_maker_program_fees` is extinct, when in fact
+   it is live on every one of those series. `tools/validate_fees.py` probes the
+   gap explicitly rather than assuming the listing is complete, and counts the
+   two populations as **separate universes** with their own denominators —
+   folding them into one fraction is what made the earlier coverage figures
+   fail to reconcile (A-14).
+2. **Absence from a listing is not absence from the venue.** Any later
+   universe-selection step must treat the listing as a lower bound on what
+   exists, not as the set of what exists.
+
+Why these particular series are excluded is not documented. They are margin
+products rather than event contracts, so plausibly the listing is scoped to
+event contracts — but that is inference, not documentation, and is recorded as
+INFERRED. Phase 1 does not trade them either way.
+
+### A-43 Quantity granularity bounds fill fragmentation — DOCUMENTED
+
+> "Minimum granularity is 0.01 contracts"
+> — docs.kalshi.com/getting_started/fixed_point_migration
+
+Quantities accept 0–2 decimal places on input and are always emitted with 2.
+Combined with 4dp prices, "intermediate calculations can reach up to 6 decimal
+places (for example, in fee rounding math)" — the same scale invariant this
+codebase enforces.
+
+The consequence matters well beyond parsing. Every positive fill is a whole
+number of 0.01-contract increments, so an order of quantity `Q` cannot be split
+into more than `Q / 0.01` fills. Fill fragmentation is therefore **finite and
+computable**, which is what makes a pre-trade upper bound on fees derivable at
+all — see `docs/fees.md` §3.1 and §3.4.
+
+An earlier revision of this work described the non-direct member's fee exposure
+as *unbounded*. That was incorrect: unknown is not the same as unbounded, and
+the bound follows directly from this documented granularity.
+
+### A-44 The fee accumulator may retain value at order end — DOCUMENTED
+
+The fee-rounding page states that the accumulator "applies across all fills of
+an order so that the total fee converges to what a single equivalent fill would
+cost". That wording invites a stronger reading than the mechanics support.
+
+What the documentation actually specifies, and what we implement verbatim:
+
+1. `trade_fee = ceil_6dp(model_fee)`
+2. `aligned_change = floor_precision(revenue - trade_fee)`
+3. `rounding_fee = (revenue - trade_fee) - aligned_change`
+4. add the rounding fee to the order's accumulator
+5. rebate in increments of the user's target balance precision, "capped so the
+   fill's net fee cannot be negative"
+
+Step 5's cap is per-fill, so a fill whose own fee is below one balance step can
+never trigger a rebate no matter how much has accrued. The documentation's own
+worked example already ends with **$0.002 still carried** after the order's
+final fill, so residue at order end is documented behaviour, not our invention.
+What it does not address is residue of a *whole step or more*, which dust-sized
+fills produce.
+
+Searched and not found in any reachable official source: an end-of-order
+reconciliation, a final accumulator refund, any definition of what becomes of
+stranded accumulator value on order termination, or any documented fill
+aggregation that would prevent the fragmentation in the first place (the fills
+endpoint defines a fill only as "when a trade you have is matched").
+
+Status: the five steps are DOCUMENTED; the dust-fill residue is INFERRED from
+them; the intended scope of "converges" is UNKNOWN. We implement the explicit
+steps and do not assume the stronger invariance. Note this is the safe
+direction: if an undocumented refund does exist, our published fee interval
+already extends down to `ceil_6dp(F)` and remains correct.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no
@@ -1048,18 +1193,30 @@ Ordered by how much damage a wrong guess would do.
    mis-stated if we assumed `M` from the general schedule. Mitigated because
    `fee_multiplier` is read per series from the live API; the open part is
    whether the PDF's table ever disagrees with that field.
-3. **A-16 — does `MECNET` net collateral across a mutually-exclusive basket,
+3. **A-14 — does `fee_multiplier` scale the taker column, the maker column, or
+   both?** The API exposes one field; the schedule has two columns. Not
+   load-bearing while 14,134/14,167 series carry `M = 1`, where every reading
+   agrees, but unresolved for the 33 series on `0` or `0.5`.
+4. **Fee segmentation.** The net fee depends on how the venue splits an order
+   into fills, which L2 depth does not reveal. It is nonetheless **bounded**:
+   quantity granularity caps the fill count (A-43), giving a proven interval
+   `[ceil_6dp(F), ceil_6dp(F) + k_max·B − µ]`. What remains open is how *tight*
+   that bound can be made — for a non-direct member it is wide enough to exceed
+   the position's notional, so marginal opportunities will still fail a
+   risklessness test. Narrowing it would need either observed fill segmentation
+   or a documented aggregation rule (A-44), neither of which we have.
+5. **A-16 — does `MECNET` net collateral across a mutually-exclusive basket,
    and by how much?** Affects capital and return, not classification.
-4. **A-10 — the numeric per-subscription market limit.** Low priority; to be
+6. **A-10 — the numeric per-subscription market limit.** Low priority; to be
    learned from normal operation rather than by probing production.
-5. **A-28 — the `path` format in `endpoint_costs`.** A mismatch silently falls
+7. **A-28 — the `path` format in `endpoint_costs`.** A mismatch silently falls
    back to the default cost.
-6. **A-18 — does any live market have a notional other than `$1.0000`?**
+8. **A-18 — does any live market have a notional other than `$1.0000`?**
    ~19,100 markets sampled, all `$1.0000` and all `binary`; no `scalar` market
    observed. Downgraded from unknown to *unobserved*, not closed.
-7. **Maker fees.** Phase 1 models taker execution only, so this is deferred,
+9. **Maker fees.** Phase 1 models taker execution only, so this is deferred,
    but `quadratic_with_maker_fees` exists and the `0.0175` rate is recorded.
-8. **Settlement edge cases.** Void, cancellation, postponement and tie
+10. **Settlement edge cases.** Void, cancellation, postponement and tie
    behaviour are not enumerated in the API docs. Per-series contract terms
    (`contract_terms_url`) are the real source. Until read for a given series,
    its settlement spec stays `UNKNOWN` and its markets are excluded.
