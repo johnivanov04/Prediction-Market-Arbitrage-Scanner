@@ -13,6 +13,7 @@ from __future__ import annotations
 import typer
 
 from predarb import __version__
+from predarb.cli.semantics import certificates_app, evidence_app
 from predarb.config import Settings
 
 app = typer.Typer(
@@ -21,6 +22,9 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+app.add_typer(evidence_app, name="evidence")
+app.add_typer(certificates_app, name="certificates")
 
 _NOT_YET = "Not implemented yet. See docs/architecture.md section 6 for build order."
 

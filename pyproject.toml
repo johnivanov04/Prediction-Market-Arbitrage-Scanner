@@ -83,6 +83,9 @@ ignore = [
 # tools/ are operator-run scripts: stdout is their interface, and a linear
 # top-to-bottom procedure is clearer than decomposing for its own sake.
 "tools/**" = ["T20", "PLR0912", "PLR0915", "PLR2004"]
+# Typer's documented idiom puts Option()/Argument() in parameter defaults, and
+# an interactive review command is necessarily a long linear prompt sequence.
+"src/predarb/cli/**" = ["B008", "PLR0912", "PLR0915", "PLR0913"]
 
 [tool.ruff.lint.flake8-builtins]
 builtins-allowed-modules = ["logging"]
@@ -98,7 +101,9 @@ quote-style = "double"
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests"]
+# tools/ are operator-run scripts that hit production read-only; an
+# attribute typo there used to surface only at runtime, mid-scan.
+files = ["src", "tests", "tools"]
 strict = true
 warn_unreachable = true
 warn_no_return = true

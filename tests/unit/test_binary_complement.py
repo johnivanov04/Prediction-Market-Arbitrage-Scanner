@@ -813,3 +813,47 @@ class TestSearchTally:
         thin = book(yes=[("0.6000", "0.03")], no=[("0.5000", "0.03")])
         result = self.search(view=thin, max_quantity=q("0.03"), fee_quoter=flat_fees("0.000100"))
         assert result.classification_counts[Classification.PROVEN_CONTRACTUAL_ARBITRAGE] == 3
+
+
+class TestSearchWithNoExecutableQuantity:
+    """Depth below the minimum must not print an inverted interval."""
+
+    def search(self, view: BookView, **kwargs: object) -> BinaryComplementSearch:
+        params: dict[str, object] = {
+            "instrument": instrument(),
+            "view": view,
+            "certificate": certificate(),
+            "current_evidence_fingerprint": FINGERPRINT,
+            "context": CONTEXT,
+            "fee_quoter": flat_fees("0.000100"),
+            "min_quantity": q("0.01"),
+            "max_quantity": q("1.00"),
+            "at": T0,
+        }
+        params.update(kwargs)
+        return search_binary_complement(**params)  # type: ignore[arg-type]
+
+    def test_an_empty_book_evaluates_nothing(self):
+        result = self.search(book(yes=[], no=[]))
+        assert result.evaluated_quantity_count == 0
+        assert result.results == ()
+
+    def test_the_interval_is_never_reported_inverted(self):
+        """[0.01, 0.00] would read as a sweep that ran backwards."""
+        result = self.search(book(yes=[], no=[]))
+        assert result.search_min_quantity <= result.search_max_quantity
+
+    def test_it_does_not_claim_a_completed_search(self):
+        result = self.search(book(yes=[], no=[]))
+        assert not result.search_complete
+        assert any("is executable" in w for w in result.warnings)
+
+    def test_depth_below_the_minimum_is_explained(self):
+        thin = book(yes=[("0.6000", "0.50")], no=[("0.5000", "0.50")])
+        result = self.search(thin, min_quantity=q("1.00"), max_quantity=q("2.00"))
+        assert result.evaluated_quantity_count == 0
+        assert any("displayed depth supports only 0.50" in w for w in result.warnings)
+
+    def test_counts_stay_consistent_with_the_evaluation_count(self):
+        result = self.search(book(yes=[], no=[]))
+        assert sum(result.classification_counts.values()) == 0

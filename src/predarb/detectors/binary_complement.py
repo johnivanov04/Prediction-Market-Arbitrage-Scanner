@@ -673,6 +673,24 @@ def search_binary_complement(
     # Depth caps the useful range. Quantities beyond it can only be
     # INSUFFICIENT_DEPTH, so evaluating them would burn time to restate that.
     reachable = min(yes_curve.max_fillable_quantity, no_curve.max_fillable_quantity, max_quantity)
+    if reachable < min_quantity:
+        # Nothing in the requested interval is executable. Reporting a
+        # "complete" search over [min, reachable] would print an inverted
+        # interval and imply a sweep that never happened.
+        return BinaryComplementSearch(
+            market_ticker=instrument.ticker,
+            search_min_quantity=min_quantity,
+            search_max_quantity=min_quantity,
+            search_step=MIN_QUANTITY_STEP,
+            evaluated_quantity_count=0,
+            search_complete=False,
+            results=(),
+            classification_counts={},
+            warnings=(
+                f"no quantity in [{min_quantity}, {max_quantity}] is executable: "
+                f"displayed depth supports only {reachable}",
+            ),
+        )
     if reachable < max_quantity:
         warnings.append(
             f"displayed depth supports only {reachable}; quantities above it were not "

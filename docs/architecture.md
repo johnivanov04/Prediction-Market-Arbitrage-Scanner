@@ -10,6 +10,19 @@ infrastructure would add failure modes without adding evidence.
 The suggested layout in the Phase 1 brief is adopted essentially unchanged. Two
 deviations are noted in §7, both small and both justified there.
 
+## 1a. One standing limitation worth stating up front
+
+`GET /events/{ticker}` does not return markets that settled before the
+historical cutoff (A-46). Every layer above the venue adapter therefore treats
+the event market list as **current observed membership, never proven exhaustive
+membership**.
+
+The practical consequence is that mutual-exclusion claims (`AT_MOST_ONE` over an
+explicitly selected subset) are reachable from the metadata we have, while
+exhaustiveness claims (`AT_LEAST_ONE`, `EXACTLY_ONE`, `PARTITION`) are not. The
+relation enums exist in `domain/enums.py` so the storage schema does not need
+migrating later, but no detector proves them.
+
 ## 2. Dependency rule
 
 Dependencies run strictly one way. This is the structural property that makes

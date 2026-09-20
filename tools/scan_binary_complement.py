@@ -15,11 +15,15 @@ candidates is the expected, healthy result.
 
 The semantic gate is not negotiable
 -----------------------------------
-No live market here carries a VERIFIED settlement certificate, because issuing
-one requires a person to read that market's contract terms and stand behind the
-payoff table. This tool never mints one: it emits ``BLOCKED_SETTLEMENT_SEMANTICS``
-and writes the exact rules hash and rules text of interesting markets to a
-review file, so a human can certify them deliberately if they choose.
+Certificates come from the local registry (``predarb certificates``), and are
+issued only by the human review workflow. This tool never mints one. There is
+deliberately **no ``--skip-certification`` flag**: a market with no active
+certificate, or one whose evidence has drifted since review, emits
+``BLOCKED_SETTLEMENT_SEMANTICS`` and no economics.
+
+Evidence is captured fresh for every market on every run and compared against
+the certificate that was issued. A certificate that no longer matches current
+evidence is reported as ``CERTIFICATE_STALE`` rather than quietly used.
 
 To keep the funnel measurable anyway, the scan *also* computes what each market
 **would** classify as if its semantics were verified. Those figures are labelled
@@ -35,7 +39,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -55,8 +59,12 @@ from predarb.domain.money import Money, Quantity
 from predarb.ingest.book_collector import BookCollector, default_journal_path
 from predarb.opportunities.models import Classification
 from predarb.semantics.certificate import CertificateStatus, standard_binary_complement
-from predarb.semantics.fingerprint import ABSENT, SettlementEvidenceFingerprint
+from predarb.semantics.evidence import SettlementEvidenceBundle
+from predarb.semantics.fingerprint import SettlementEvidenceFingerprint
+from predarb.semantics.policy import CertificateClaim
+from predarb.semantics.registry import CertificateRegistry
 from predarb.venues.kalshi.client import KalshiReadOnlyClient
+from predarb.venues.kalshi.evidence_capture import capture_settlement_evidence
 from predarb.venues.kalshi.fee_model import BalancePrecision
 from predarb.venues.kalshi.fees import leg_fee_bounds
 from predarb.venues.kalshi.market_discovery import discover_active_markets
@@ -81,15 +89,15 @@ class ScanMetrics:
     markets_with_valid_books: int = 0
     quantities_evaluated: int = 0
     gross_complement_candidates: int = 0
-    hypothetically_eliminated_by_fees: int = 0
-    hypothetically_indeterminate: int = 0
-    hypothetically_proven: int = 0
+    hypothetical_by_classification: dict[str, int] = field(default_factory=dict)
     blocked_by_settlement_semantics: int = 0
     blocked_by_fee_semantics: int = 0
     blocked_by_book_integrity: int = 0
     blocked_by_liquidity_collision: int = 0
     insufficient_depth: int = 0
     proven_candidates: int = 0
+    markets_without_certificate: int = 0
+    certificates_stale: int = 0
     best_gross_margin: Money | None = None
     """The most favourable margin actually observed, **including negative ones**.
 
@@ -112,14 +120,18 @@ class ScanMetrics:
             "blocked_by_liquidity_collision": self.blocked_by_liquidity_collision,
             "insufficient_depth": self.insufficient_depth,
             "proven_candidates_emitted": self.proven_candidates,
+            "markets_without_certificate": self.markets_without_certificate,
+            "certificates_stale": self.certificates_stale,
             "hypothetical": {
                 "note": (
                     "what these markets would classify as IF their settlement "
                     "semantics were verified; not findings, and never emitted"
                 ),
-                "eliminated_by_fees": self.hypothetically_eliminated_by_fees,
-                "indeterminate_cost_bounds": self.hypothetically_indeterminate,
-                "would_be_proven": self.hypothetically_proven,
+                # Every evaluation is accounted for. An earlier revision tallied
+                # only three outcomes and silently dropped the rest, which made
+                # a fully fee-blocked sweep look like an empty one.
+                "by_classification": dict(sorted(self.hypothetical_by_classification.items())),
+                "total": sum(self.hypothetical_by_classification.values()),
             },
             "best_gross_pre_fee_margin": (
                 None if self.best_gross_margin is None else self.best_gross_margin.to_str()
@@ -204,37 +216,24 @@ async def fetch_context(
     return instruments, fee_configs
 
 
-def provisional_fingerprint(instrument: VenueInstrument) -> SettlementEvidenceFingerprint:
-    """A fingerprint over the settlement evidence reachable from the market alone.
+async def capture_evidence(
+    settings: Settings, tickers: list[str], *, fetch_documents: bool
+) -> dict[str, SettlementEvidenceBundle]:
+    """Capture current settlement evidence for every market being scanned.
 
-    Provisional, and named so. Step 8 builds the real bundle, which also spans
-    the parent event, the series' settlement sources and any external contract
-    document. Until then this is enough to exercise the drift machinery end to
-    end -- and, because it is narrower than the eventual bundle, it can only
-    ever be *more* willing to call evidence unchanged, never less. That is the
-    wrong direction, which is precisely why no live certificate is issued from
-    it: every live market here stays REVIEW_REQUIRED regardless.
+    Fresh every run: a certificate is only usable against the evidence that
+    exists now, so a cached fingerprint would defeat drift detection entirely.
     """
-    return SettlementEvidenceFingerprint.over(
-        {
-            "market.ticker": instrument.ticker,
-            "market.market_type": instrument.market_type_raw,
-            "market.notional_value": (
-                instrument.notional_value.to_str()
-                if instrument.notional_value is not None
-                else ABSENT
-            ),
-            "market.rules_primary": instrument.rules_primary or ABSENT,
-            "market.rules_secondary": instrument.rules_secondary or ABSENT,
-            "market.rules_hash": instrument.rules_hash or ABSENT,
-            "market.yes_sub_title": instrument.yes_sub_title or ABSENT,
-            "market.no_sub_title": instrument.no_sub_title or ABSENT,
-            "market.can_close_early": instrument.can_close_early,
-            "market.settlement_timer_seconds": instrument.settlement_timer_seconds,
-            "market.settlement_kind": instrument.settlement_kind.value,
-            "event.ticker": instrument.event_ticker,
-        }
-    )
+    bundles: dict[str, SettlementEvidenceBundle] = {}
+    async with KalshiReadOnlyClient.public(env=settings.kalshi_env) as client:
+        for ticker in tickers:
+            try:
+                bundles[ticker] = await capture_settlement_evidence(
+                    client, ticker, fetch_documents=fetch_documents
+                )
+            except Exception as exc:
+                print(f"  !! evidence capture failed for {ticker}: {type(exc).__name__}: {exc}")
+    return bundles
 
 
 def scan_market(
@@ -247,6 +246,8 @@ def scan_market(
     max_quantity: Quantity,
     at: datetime,
     metrics: ScanMetrics,
+    registry: CertificateRegistry,
+    evidence: SettlementEvidenceBundle | None,
 ) -> dict[str, Any]:
     """Evaluate one market, emitting only what the semantic gate permits."""
     row: dict[str, Any] = {"ticker": view.market_ticker, "integrity": view.integrity.value}
@@ -268,25 +269,48 @@ def scan_market(
 
     # The certificate we actually emit with: never verified, because nobody has
     # read this market's rules.
-    fingerprint = provisional_fingerprint(instrument)
-    row["evidence_fingerprint"] = fingerprint.short
-    unverified = standard_binary_complement(
-        market_ticker=instrument.ticker,
-        evidence_fingerprint=fingerprint,
-        rules_hash=instrument.rules_hash,
-        notional=instrument.notional_value or Quantity.from_value("1.00"),  # type: ignore[arg-type]
-        evidence="",
-        verified_by="",
-        verification_method="",
-        verified_at=at,
-        valid_from=at,
-        status=CertificateStatus.REVIEW_REQUIRED,
+    fingerprint: SettlementEvidenceFingerprint | None = (
+        evidence.fingerprint() if evidence is not None else None
     )
+    row["evidence_fingerprint"] = fingerprint.short if fingerprint else None
     quoter = _quoter(fee_config, precision)
+
+    # The registry is the only source of certificates. No flag bypasses it.
+    active = registry.active_at(
+        market_ticker=instrument.ticker,
+        claim=CertificateClaim.STANDARD_BINARY_COMPLEMENT,
+        current_fingerprint=fingerprint,
+        at=at,
+    )
+    history = registry.history_for(instrument.ticker)
+    if active is not None:
+        certificate = active.certificate
+        row["certificate"] = active.certificate_id[:12]
+    else:
+        if history:
+            # Reviewed once, but not against the evidence in force today.
+            row["warning"] = "CERTIFICATE_STALE"
+            metrics.certificates_stale += 1
+            row["stale_certificates"] = [r.certificate_id[:12] for r in history]
+        else:
+            metrics.markets_without_certificate += 1
+        certificate = standard_binary_complement(
+            market_ticker=instrument.ticker,
+            evidence_fingerprint=fingerprint
+            or SettlementEvidenceFingerprint.over({"unavailable": instrument.ticker}),
+            rules_hash=instrument.rules_hash or "",
+            notional=instrument.notional_value,  # type: ignore[arg-type]
+            evidence="",
+            verified_by="",
+            verification_method="",
+            verified_at=at,
+            valid_from=at,
+            status=CertificateStatus.REVIEW_REQUIRED,
+        )
     emitted = evaluate_quantity(
         instrument=instrument,
         view=view,
-        certificate=unverified,
+        certificate=certificate,
         current_evidence_fingerprint=fingerprint,
         context=context,
         fee_quoter=quoter,
@@ -302,7 +326,8 @@ def scan_market(
     # Hypothetical funnel: same inputs, semantics assumed. Diagnostics only.
     hypothetical = standard_binary_complement(
         market_ticker=instrument.ticker,
-        evidence_fingerprint=fingerprint,
+        evidence_fingerprint=fingerprint
+        or SettlementEvidenceFingerprint.over({"unavailable": instrument.ticker}),
         rules_hash=instrument.rules_hash,
         notional=instrument.notional_value,  # type: ignore[arg-type]
         evidence="HYPOTHETICAL: assumed for funnel diagnostics; nobody read these rules.",
@@ -315,7 +340,7 @@ def scan_market(
         instrument=instrument,
         view=view,
         certificate=hypothetical,
-        current_evidence_fingerprint=fingerprint,
+        current_evidence_fingerprint=fingerprint or hypothetical.evidence_fingerprint,
         context=context,
         fee_quoter=quoter,
         min_quantity=Quantity.from_value("0.01"),
@@ -331,12 +356,14 @@ def scan_market(
     # Counted over every evaluation, not just the retained ones: retention is a
     # memory decision and must not shape the funnel.
     counts = search.classification_counts
-    metrics.hypothetically_proven += counts.get(Classification.PROVEN_CONTRACTUAL_ARBITRAGE, 0)
-    metrics.hypothetically_eliminated_by_fees += counts.get(Classification.PROVEN_NOT_PROFITABLE, 0)
-    metrics.hypothetically_indeterminate += counts.get(Classification.INDETERMINATE_COST_BOUNDS, 0)
+    for classification, count in counts.items():
+        metrics.hypothetical_by_classification[classification.value] = (
+            metrics.hypothetical_by_classification.get(classification.value, 0) + count
+        )
     row["hypothetical"]["by_classification"] = {
         classification.value: count for classification, count in counts.items()
     }
+    row["hypothetical"]["warnings"] = list(search.warnings)
     for result in search.proven_candidates:
         floor = result.profit.profit_lower_bound if result.profit else Money.zero()
         if metrics.largest_proven_profit_floor is None or (
@@ -344,10 +371,6 @@ def scan_market(
         ):
             metrics.largest_proven_profit_floor = floor
     return row
-
-
-def fingerprint_for_review(instrument: VenueInstrument) -> str:
-    return provisional_fingerprint(instrument).digest
 
 
 def _quoter(fee_config: Any, precision: BalancePrecision) -> Any:
@@ -382,6 +405,17 @@ async def main() -> None:
         help="search cap in contracts; the caller chooses it, there is no universal cap",
     )
     parser.add_argument(
+        "--semantics-root",
+        type=Path,
+        default=Path("./data/semantics"),
+        help="local certificate/evidence store",
+    )
+    parser.add_argument(
+        "--skip-documents",
+        action="store_true",
+        help="do not fetch external contract documents during evidence capture",
+    )
+    parser.add_argument(
         "--member-class",
         choices=["direct", "non-direct", "unknown"],
         default="unknown",
@@ -404,6 +438,12 @@ async def main() -> None:
     started = datetime.now(tz=UTC)
     instruments, fee_configs = await fetch_context(settings, tickers, started)
 
+    print(f"\nCapturing settlement evidence for {len(tickers)} markets ...")
+    bundles = await capture_evidence(settings, tickers, fetch_documents=not args.skip_documents)
+    registry = CertificateRegistry(args.semantics_root)
+    for bundle in bundles.values():
+        registry.store_evidence(bundle)
+
     print(f"\nCollecting books for {args.seconds:.0f}s ...")
     collector = BookCollector(
         settings=settings,
@@ -413,6 +453,12 @@ async def main() -> None:
     stats = await collector.run(duration_s=args.seconds)
 
     at = datetime.now(tz=UTC)
+    if stats.final_epoch is None:
+        # No connection epoch means no book was ever established under a known
+        # connection, so nothing can be quoted authoritatively. Say so rather
+        # than inventing an epoch.
+        print("\nNo connection epoch was established; no book can be quoted. Nothing scanned.")
+        return
     context = ExecutionContext(current_connection_epoch=stats.final_epoch)
     metrics = ScanMetrics(markets_monitored=len(tickers))
     rows: list[dict[str, Any]] = []
@@ -434,13 +480,20 @@ async def main() -> None:
                 max_quantity=Quantity.from_value(args.max_quantity),
                 at=at,
                 metrics=metrics,
+                registry=registry,
+                evidence=bundles.get(ticker),
             )
         )
         review.append(
             {
                 "ticker": ticker,
                 "rules_hash": instrument.rules_hash,
-                "provisional_evidence_fingerprint": fingerprint_for_review(instrument),
+                "evidence_fingerprint": (
+                    bundles[ticker].fingerprint().digest if ticker in bundles else None
+                ),
+                "evidence_snapshot_id": (
+                    bundles[ticker].snapshot_id if ticker in bundles else None
+                ),
                 "market_type_raw": instrument.market_type_raw,
                 "notional": (
                     instrument.notional_value.to_str() if instrument.notional_value else None
@@ -460,6 +513,7 @@ async def main() -> None:
         "generated_at": at.isoformat(),
         "environment": settings.kalshi_env.value,
         "member_class_assumption": args.member_class,
+        "semantics_root": str(args.semantics_root),
         "balance_precision": precision.describe(),
         "search_max_quantity": args.max_quantity,
         "observation_seconds": args.seconds,
@@ -489,6 +543,9 @@ async def main() -> None:
         )
     print(f"\nWrote {RESULTS_PATH}")
     print(f"Wrote {REVIEW_PATH} ({len(review)} markets awaiting human rules review)")
+    print(
+        "\nCertificates come from the local registry only; there is no --skip-certification flag."
+    )
 
 
 if __name__ == "__main__":

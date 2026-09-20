@@ -53,6 +53,7 @@ independent status axes on every opportunity record.
 | [docs/execution.md](docs/execution.md) | Derived asks, executable depth, VWAP, liquidity identity |
 | [docs/fees.md](docs/fees.md) | Taker fee mechanics, fill-fragmentation limits, exactness classification |
 | [docs/detection.md](docs/detection.md) | Payoff states, settlement certification, profit intervals, the binary-complement canary |
+| [docs/certification.md](docs/certification.md) | Settlement evidence, fingerprinting, human review, drift and historical validity |
 | docs/replay.md | *(planned)* Replay and point-in-time guarantees |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict

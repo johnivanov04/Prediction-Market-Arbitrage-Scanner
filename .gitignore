@@ -55,3 +55,7 @@ execution_validation.json
 fee_validation.json
 binary_complement_scan.json
 certificate_review_requests.json
+
+# Settlement evidence and certificates are local research records. Contract
+# documents belong to the exchange; this repository is not a mirror of them.
+data/semantics/

@@ -1182,6 +1182,51 @@ Status: the existence of non-standard resolutions is DOCUMENTED; which specific
 markets carry them is UNKNOWN per market until their terms are read, so every
 market starts at `REVIEW_REQUIRED`.
 
+### A-46 The event market list is not a complete outcome universe — DOCUMENTED
+
+> "historical markets settled before the historical cutoff will not be included"
+> — docs.kalshi.com, Get Event and Get Events (`with_nested_markets`)
+
+Markets that settled before the cutoff live only behind `GET /historical/markets`;
+the boundary itself is published at `GET /historical/cutoff`. So:
+
+    the markets returned for an event  !=  every outcome the event ever had
+
+This is a **completeness** limitation, and it cuts differently for different
+logical claims.
+
+#### Safe: `AT_MOST_ONE` over a selected subset
+
+"At most one of these selected markets may settle YES" needs no proof that the
+list is exhaustive. Its state space is: none of the selected markets settles
+YES, or exactly one does. A winner *outside* the selected subset — including a
+historical market the API never returned — is economically identical, from the
+basket's point of view, to "all selected markets settle NO", which is already an
+enumerated state.
+
+So a selected-subset `AT_MOST_ONE` claim survives incomplete membership intact.
+
+#### Unsafe without further evidence: `AT_LEAST_ONE`, `EXACTLY_ONE`, `PARTITION`
+
+Each of these asserts that *some* outcome must occur among a known set. That is
+precisely a claim about completeness, and the endpoint that enumerates the set
+explicitly does not guarantee it. A missing settled market is a missing outcome,
+and a basket priced on "one of these must win" would be unhedged against it.
+
+None of these is implemented.
+
+#### Exhaustiveness may not be inferred from
+
+- `mutually_exclusive` — that is a statement about *conflict*, not coverage:
+  "no two can both win" says nothing about whether one must
+- the current event market list, or how many markets it returned
+- titles, subtitles or category
+- the absence of an obvious missing outcome
+
+Recorded so the distinction survives into later phases: mutual exclusion and
+exhaustiveness are different propositions requiring different evidence, and only
+the first is reachable from the metadata we have.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no
