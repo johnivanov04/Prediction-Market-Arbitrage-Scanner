@@ -17,7 +17,7 @@ live and replay share code.
 
 ```
                     ┌─────────────┐
-                    │   domain    │   money, enums, models, payoff
+                    │   domain    │   money, enums, models, payoff, costs
                     └──────▲──────┘   depends on NOTHING
                            │
         ┌──────────────────┼──────────────────┐
@@ -32,7 +32,7 @@ live and replay share code.
   └─────▲─────┘                     │
         │                    ┌──────┴──────┐
         │                    │  detectors  │  PURE. no I/O.
-        │                    └──────▲──────┘
+        │                    └──────▲──────┘   binary_complement
         │                           │
         │                    ┌──────┴──────┐
         └────────────────────┤opportunities│

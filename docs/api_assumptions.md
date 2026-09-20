@@ -1159,6 +1159,29 @@ steps and do not assume the stronger invariance. Note this is the safe
 direction: if an undocumented refund does exist, our published fee interval
 already extends down to `ceil_6dp(F)` and remains correct.
 
+### A-45 `market_type == "binary"` does not establish a two-state payoff — DOCUMENTED
+
+Kalshi's rules acknowledge markets that resolve to a **fair-market value** or
+carry a **did-not-play** adjustment, governed by the per-series contract terms
+rather than by any API field. A contract can therefore carry
+`market_type == "binary"` and still have a terminal value that `{0, notional}`
+does not describe.
+
+Consequence for Phase 1: `market_type` is a description, never evidence. A
+contractual-arbitrage claim requires an explicit
+`SettlementCertificate` whose payoff tables were read from the rules text and
+bound to its `rules_hash` (`docs/detection.md` §2-3). The same applies to the
+title, ticker, event category and yes/no subtitles — none of them specify
+settlement, and none may mint a certificate.
+
+This is the gate that makes the difference between "these two prices sum to
+less than a dollar" and "this portfolio pays a dollar in every state it can
+reach". Without it the first sentence gets mistaken for the second.
+
+Status: the existence of non-standard resolutions is DOCUMENTED; which specific
+markets carry them is UNKNOWN per market until their terms are read, so every
+market starts at `REVIEW_REQUIRED`.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no

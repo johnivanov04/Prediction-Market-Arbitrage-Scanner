@@ -53,3 +53,5 @@ execution_validation.json
 .idea/
 .vscode/
 fee_validation.json
+binary_complement_scan.json
+certificate_review_requests.json

@@ -49,6 +49,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from predarb.books.execution import ExecutionQuote
+from predarb.domain.costs import FeeBounds, FeesUnavailable, LegFees
 from predarb.domain.enums import Liquidity
 from predarb.domain.fees import FeeConfiguration, ResolvedFeeConfiguration
 from predarb.domain.money import Money, Quantity
@@ -78,6 +79,7 @@ __all__ = [
     "UnavailableFee",
     "estimate_fees",
     "estimate_multi_leg_fees",
+    "leg_fee_bounds",
 ]
 
 
@@ -468,4 +470,43 @@ def estimate_multi_leg_fees(
         total_lower_bound=Money.from_units(sum(leg.lower_bound_net_fee.units for leg in available)),
         total_upper_bound=Money.from_units(sum(leg.upper_bound_net_fee.units for leg in available)),
         warnings=tuple(warnings),
+    )
+
+
+def leg_fee_bounds(
+    quote: ExecutionQuote,
+    resolved: ResolvedFeeConfiguration,
+    precision: BalancePrecision,
+    *,
+    actual_fills: Sequence[Fill] | None = None,
+) -> LegFees:
+    """Adapt a Kalshi fee estimate to the venue-neutral cost vocabulary.
+
+    This is the seam that lets a detector consume Kalshi fees without importing
+    anything Kalshi-shaped. It is a plain function matching the structural
+    signature detectors expect, so nothing here depends on the detector layer
+    either -- the dependency runs in neither direction.
+
+    An unresolved ``fee_multiplier`` yields real numbers with
+    ``supports_arbitrage_claim = False`` rather than an unavailable result: the
+    figures are sound as a hypothetical, they merely cannot carry a proof.
+    """
+    estimate = estimate_fees(quote, resolved, precision, actual_fills=actual_fills)
+    if isinstance(estimate, UnavailableFee):
+        return FeesUnavailable(
+            reason=estimate.reason,
+            provenance=estimate.effective_config.provenance,
+            warnings=estimate.warnings,
+        )
+    return FeeBounds(
+        lower=estimate.lower_bound_net_fee,
+        upper=estimate.upper_bound_net_fee,
+        exact=estimate.is_exact,
+        supports_arbitrage_claim=estimate.supports_arbitrage_claim,
+        provenance=(
+            f"{estimate.effective_config.provenance}; "
+            f"{estimate.exactness.value}; {estimate.multiplier_status.value}; "
+            f"{precision.describe()}; k_max={estimate.max_fill_count}"
+        ),
+        warnings=estimate.warnings,
     )
