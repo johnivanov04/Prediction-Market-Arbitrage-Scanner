@@ -279,6 +279,35 @@ class SettlementCertificate:
         )
 
     @property
+    def yes_state(self) -> SettlementState:
+        """The state in which YES wins, derived from the payoff table itself.
+
+        Not a stored label. The table is the authority on which state pays YES,
+        so reading it back means a certificate cannot disagree with itself --
+        and a caller lifting this market into a larger joint state space does
+        not have to guess at naming conventions.
+        """
+        for state in self.allowed_states:
+            if self.yes_payoff.payoff_per_contract(state) == self.notional:
+                return state
+        raise ValueError(
+            f"{self.market_ticker}: no allowed state pays YES the full notional; "
+            "this is not a standard binary payoff table"
+        )
+
+    @property
+    def no_state(self) -> SettlementState:
+        """The state in which NO wins."""
+        winner = self.yes_state
+        others = [state for state in self.allowed_states if state != winner]
+        if len(others) != 1:
+            raise ValueError(
+                f"{self.market_ticker}: expected exactly one non-YES state, got "
+                f"{[s.name for s in others]}"
+            )
+        return others[0]
+
+    @property
     def identity(self) -> str:
         """Short, stable identifier for audit output."""
         return f"{self.market_ticker}@{self.evidence_fingerprint.short}"

@@ -1227,6 +1227,31 @@ Recorded so the distinction survives into later phases: mutual exclusion and
 exhaustiveness are different propositions requiring different evidence, and only
 the first is reachable from the metadata we have.
 
+### A-47 Nested markets arrive inside the event object — VERIFIED (live, 2026-09-21)
+
+``GET /events/{event_ticker}?with_nested_markets=true`` returns:
+
+```
+{ "event": { ..., "markets": [ 7 markets ] }, "markets": [] }
+```
+
+The markets are nested **inside** the event object. The envelope's own
+top-level ``markets`` key is present and **empty**.
+
+This is a quiet trap: reading the top-level key yields zero members, which is
+indistinguishable from an event that genuinely has none. Our first relation
+discovery run reported "57 mutually-exclusive events, 0 with at least two
+members", which looked like a plausible finding about the venue and was in fact
+a bug in our own reading.
+
+``KalshiEventEnvelope.member_markets`` checks both, event-nested first, so a
+caller cannot pick the wrong one. The top-level field is retained rather than
+deleted: if the venue starts populating it, that is a change we want to see
+rather than one we have already discarded.
+
+Note this is a *shape* finding and does not soften A-46: however the markets are
+delivered, the list still omits markets settled before the historical cutoff.
+
 ## Differences from the assumptions in the Phase 1 brief
 
 The brief is accurate on the points that matter most (bids-only books, no

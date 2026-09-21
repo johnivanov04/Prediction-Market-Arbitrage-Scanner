@@ -319,3 +319,61 @@ class TestRawByteFidelity:
         # Raw-byte regression depends on the files not being pretty-printed.
         raw = load_raw("rest/orderbook_empty.json")
         assert raw == b'{"orderbook_fp":{"no_dollars":[],"yes_dollars":[]}}'
+
+
+class TestNestedEventMarkets:
+    """``with_nested_markets=true`` nests markets inside the event (A-47).
+
+    The envelope's own ``markets`` key stays empty, so reading it yields zero
+    members -- indistinguishable from an event that genuinely has none. This
+    cost us a plausible-looking false finding once already.
+    """
+
+    def test_markets_nested_under_the_event_are_found(self):
+        envelope = KalshiEventEnvelope.model_validate(
+            {
+                "event": {
+                    "event_ticker": "EVT",
+                    "series_ticker": "SER",
+                    "markets": [
+                        {
+                            "ticker": "A",
+                            "event_ticker": "EVT",
+                            "market_type": "binary",
+                            "status": "active",
+                        },
+                        {
+                            "ticker": "B",
+                            "event_ticker": "EVT",
+                            "market_type": "binary",
+                            "status": "active",
+                        },
+                    ],
+                },
+                "markets": [],
+            }
+        )
+        assert [m.ticker for m in envelope.member_markets] == ["A", "B"]
+
+    def test_top_level_markets_are_still_honoured(self):
+        """Retained so a venue change is visible rather than already discarded."""
+        envelope = KalshiEventEnvelope.model_validate(
+            {
+                "event": {"event_ticker": "EVT", "series_ticker": "SER"},
+                "markets": [
+                    {
+                        "ticker": "A",
+                        "event_ticker": "EVT",
+                        "market_type": "binary",
+                        "status": "active",
+                    }
+                ],
+            }
+        )
+        assert [m.ticker for m in envelope.member_markets] == ["A"]
+
+    def test_an_event_with_no_markets_reports_none(self):
+        envelope = KalshiEventEnvelope.model_validate(
+            {"event": {"event_ticker": "EVT", "series_ticker": "SER"}, "markets": []}
+        )
+        assert envelope.member_markets == ()

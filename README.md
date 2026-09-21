@@ -54,6 +54,7 @@ independent status axes on every opportunity record.
 | [docs/fees.md](docs/fees.md) | Taker fee mechanics, fill-fragmentation limits, exactness classification |
 | [docs/detection.md](docs/detection.md) | Payoff states, settlement certification, profit intervals, the binary-complement canary |
 | [docs/certification.md](docs/certification.md) | Settlement evidence, fingerprinting, human review, drift and historical validity |
+| [docs/relations.md](docs/relations.md) | AT_MOST_ONE relations, the n+1 state space, NO baskets, and why exhaustiveness is out of reach |
 | docs/replay.md | *(planned)* Replay and point-in-time guarantees |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict

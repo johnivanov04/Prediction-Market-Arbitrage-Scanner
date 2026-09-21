@@ -287,6 +287,14 @@ class KalshiEvent(_WireModel):
     strike_date: datetime | None = None
     strike_period: str | None = None
     settlement_sources: NullableTuple[KalshiSettlementSource] = ()
+    markets: NullableTuple[KalshiMarket] = ()
+    """Nested markets, when requested with ``with_nested_markets=true``.
+
+    The API nests them **inside the event object**, not beside it: the
+    envelope's own top-level ``markets`` key is present but empty (A-47). Read
+    :attr:`KalshiEventEnvelope.member_markets` rather than either field
+    directly."""
+
     fee_type_override: str | None = None
     fee_multiplier_override: MultiplierField | None = None
     last_updated_ts: datetime | None = None
@@ -300,6 +308,19 @@ class KalshiEventEnvelope(_WireModel):
 
     event: KalshiEvent
     markets: NullableTuple[KalshiMarket] = ()
+    """Top-level market list. Observed **always empty** even when nested
+    markets were requested -- the payload puts them on the event instead."""
+
+    @property
+    def member_markets(self) -> tuple[KalshiMarket, ...]:
+        """The event's markets, from wherever this response actually put them.
+
+        ``with_nested_markets=true`` returns them under ``event.markets`` while
+        the envelope's own ``markets`` stays empty (A-47). Reading only the
+        top-level key silently yields zero members, which looks identical to an
+        event that genuinely has none. Both are checked, event-nested first.
+        """
+        return tuple(self.event.markets) or tuple(self.markets)
 
 
 class KalshiEventsPage(_WireModel):

@@ -49,6 +49,15 @@ from predarb.semantics.certificate import (
 from predarb.semantics.evidence import SettlementEvidenceBundle
 from predarb.semantics.fingerprint import Absent, SettlementEvidenceFingerprint
 from predarb.semantics.policy import CertificateClaim, policy_for
+from predarb.semantics.relation import (
+    RelationCertificate,
+    RelationClaim,
+    RelationDecision,
+    RelationEvidenceBundle,
+    RelationReviewRequest,
+    RelationStatus,
+    canonical_members,
+)
 from predarb.semantics.review import Decision, ReviewDecision, ReviewRequest
 
 __all__ = [
@@ -56,6 +65,8 @@ __all__ = [
     "CertificateRecord",
     "CertificateRegistry",
     "IssuanceError",
+    "RelationRecord",
+    "RelationRegistry",
     "drift_report",
     "issue_certificate",
 ]
@@ -611,3 +622,292 @@ def unused_policy_check(claims: Iterable[CertificateClaim]) -> Sequence[str]:
         except ValueError:
             missing.append(claim.value)
     return missing
+
+
+# -- relation certificates -------------------------------------------------
+#
+# Kept in the same store, in sibling directories, because a relation review is
+# the same kind of record as a settlement review: append-only, content
+# addressed, and meaningful only alongside the evidence it was made against.
+
+
+@dataclass(frozen=True, slots=True)
+class RelationRecord:
+    """A stored relation certificate plus the trail that produced it."""
+
+    certificate: RelationCertificate
+    request_id: str
+
+    @property
+    def certificate_id(self) -> str:
+        return self.certificate.certificate_id
+
+    @property
+    def event_ticker(self) -> str:
+        return self.certificate.event_ticker
+
+    @property
+    def selected_members(self) -> tuple[str, ...]:
+        return self.certificate.selected_members
+
+    def applicability(
+        self,
+        *,
+        current_fingerprint: SettlementEvidenceFingerprint | None,
+        member_settlement_fingerprints: Mapping[str, str] | None,
+        at: datetime,
+    ) -> CertificateApplicability:
+        moment = ensure_utc(at)
+        if current_fingerprint is None:
+            return CertificateApplicability.EVIDENCE_UNAVAILABLE
+        blocking = self.certificate.blocking_reason(
+            current_fingerprint=current_fingerprint,
+            member_settlement_fingerprints=member_settlement_fingerprints,
+            at=moment,
+        )
+        if blocking is None:
+            return CertificateApplicability.ACTIVE
+        if "not yet valid" in blocking:
+            return CertificateApplicability.NOT_YET_VALID
+        if "expired" in blocking:
+            return CertificateApplicability.EXPIRED
+        return CertificateApplicability.STALE_EVIDENCE_DRIFT
+
+    def describe(self) -> str:
+        return self.certificate.describe()
+
+
+class RelationRegistry:
+    """Append-only store for relation evidence, reviews and certificates.
+
+    Deliberately a sibling of :class:`CertificateRegistry` rather than a
+    subclass: the two hold different claims with different proof obligations,
+    and a shared lookup would make it easy to satisfy one with the other.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.evidence_dir = root / "relation_evidence"
+        self.requests_dir = root / "relation_requests"
+        self.decisions_dir = root / "relation_decisions"
+        self.certificates_dir = root / "relation_certificates"
+
+    def _ensure(self) -> None:
+        for directory in (
+            self.evidence_dir,
+            self.requests_dir,
+            self.decisions_dir,
+            self.certificates_dir,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+
+    def _write(self, path: Path, payload: dict[str, Any]) -> Path:
+        self._ensure()
+        text = json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n"
+        if path.exists():
+            if path.read_text(encoding="utf-8") != text:
+                raise ValueError(
+                    f"{path.name} already exists with different content; relation "
+                    "evidence and decisions are append-only"
+                )
+            return path
+        _atomic_write(path, text)
+        return path
+
+    def store_evidence(self, bundle: RelationEvidenceBundle) -> Path:
+        return self._write(
+            self.evidence_dir / f"{bundle.snapshot_id}.json",
+            {
+                "snapshot_id": bundle.snapshot_id,
+                "event_ticker": bundle.event_ticker,
+                "series_ticker": bundle.series_ticker,
+                "selected_members": list(bundle.selected_members),
+                # Named in the payload, not just in code, so nobody reading the
+                # stored record mistakes it for a proven outcome universe.
+                "observed_event_membership_NOT_PROVEN_EXHAUSTIVE": list(
+                    bundle.observed_event_membership
+                ),
+                "captured_at": bundle.captured_at.isoformat(),
+                "schema_version": bundle.schema_version,
+                "event_fields": {k: _jsonable(v) for k, v in bundle.event_fields.items()},
+                "members": [
+                    {
+                        "ticker": m.ticker,
+                        "title": m.title,
+                        "yes_sub_title": m.yes_sub_title,
+                        "no_sub_title": m.no_sub_title,
+                        "rules_hash": m.rules_hash,
+                        "notional": m.notional,
+                        "settlement_fingerprint": m.settlement_fingerprint,
+                        "settlement_certificate_id": m.settlement_certificate_id,
+                    }
+                    for m in bundle.member_evidence
+                ],
+                "documents": {
+                    name: {
+                        "url": doc.url,
+                        "retrieval": doc.retrieval.value,
+                        "http_status": doc.http_status,
+                        "content_sha256": doc.content_sha256,
+                        "content_bytes": doc.content_bytes,
+                        "extraction": doc.extraction.value,
+                    }
+                    for name, doc in bundle.documents.items()
+                },
+                "source_refs": dict(bundle.source_refs),
+                "capture_errors": list(bundle.capture_errors),
+                "fingerprint": _fingerprint_payload(bundle.fingerprint()),
+            },
+        )
+
+    def store_request(self, request: RelationReviewRequest) -> Path:
+        return self._write(
+            self.requests_dir / f"{request.request_id}.json",
+            {
+                "request_id": request.request_id,
+                "claim": request.claim.value,
+                "proposition": request.claim.proposition,
+                "event_ticker": request.event_ticker,
+                "selected_members": list(request.selected_members),
+                "observed_event_membership_NOT_PROVEN_EXHAUSTIVE": list(
+                    request.observed_event_membership
+                ),
+                "snapshot_id": request.snapshot_id,
+                "evidence_fingerprint": _fingerprint_payload(request.evidence_fingerprint),
+                "completeness": request.completeness.value,
+                "incompleteness_reasons": list(request.incompleteness_reasons),
+                "checklist": [
+                    {"key": q.key, "prompt": q.prompt, "why_it_matters": q.why_it_matters}
+                    for q in request.checklist
+                ],
+                "policy_schema_version": request.policy_schema_version,
+                "generated_at": request.generated_at.isoformat(),
+                "notes": list(request.notes),
+            },
+        )
+
+    def store_decision(self, decision: RelationDecision) -> Path:
+        name = f"{decision.request_id}-{decision.evidence_fingerprint.short}.json"
+        return self._write(
+            self.decisions_dir / name,
+            {
+                "request_id": decision.request_id,
+                "claim": decision.claim.value,
+                "event_ticker": decision.event_ticker,
+                "selected_members": list(decision.selected_members),
+                "snapshot_id": decision.snapshot_id,
+                "evidence_fingerprint": _fingerprint_payload(decision.evidence_fingerprint),
+                "decision": decision.decision.value,
+                "reviewer": decision.reviewer,
+                "reviewed_at": decision.reviewed_at.isoformat(),
+                "checklist_answers": {k: v.value for k, v in decision.checklist_answers.items()},
+                "notes": decision.notes,
+            },
+        )
+
+    def store_certificate(
+        self, certificate: RelationCertificate, *, request_id: str
+    ) -> RelationRecord:
+        self._write(
+            self.certificates_dir / f"{certificate.certificate_id}.json",
+            {
+                "certificate_id": certificate.certificate_id,
+                "claim": certificate.claim.value,
+                "proposition": certificate.claim.proposition,
+                "event_ticker": certificate.event_ticker,
+                "selected_members": list(certificate.selected_members),
+                "snapshot_id": certificate.snapshot_id,
+                "request_id": request_id,
+                "evidence_fingerprint": _fingerprint_payload(certificate.evidence_fingerprint),
+                "member_settlement_fingerprints": dict(certificate.member_settlement_fingerprints),
+                "status": certificate.status.value,
+                "reviewer": certificate.reviewer,
+                "reviewed_at": certificate.reviewed_at.isoformat(),
+                "issued_at": certificate.issued_at.isoformat(),
+                "valid_from": certificate.valid_from.isoformat(),
+                "valid_to": (certificate.valid_to.isoformat() if certificate.valid_to else None),
+                "policy_schema_version": certificate.policy_schema_version,
+                "evidence": certificate.evidence,
+                "notes": certificate.notes,
+            },
+        )
+        return RelationRecord(certificate=certificate, request_id=request_id)
+
+    def list_certificates(self, *, event_ticker: str | None = None) -> list[RelationRecord]:
+        if not self.certificates_dir.exists():
+            return []
+        records = [
+            _relation_from_payload(json.loads(path.read_text(encoding="utf-8")))
+            for path in sorted(self.certificates_dir.glob("*.json"))
+        ]
+        if event_ticker is not None:
+            records = [r for r in records if r.event_ticker == event_ticker]
+        return sorted(records, key=lambda r: r.certificate.issued_at)
+
+    def active_at(
+        self,
+        *,
+        event_ticker: str,
+        claim: RelationClaim,
+        members: Sequence[str],
+        current_fingerprint: SettlementEvidenceFingerprint | None,
+        member_settlement_fingerprints: Mapping[str, str] | None,
+        at: datetime,
+    ) -> RelationRecord | None:
+        """The relation certificate usable for this exact member set at ``at``.
+
+        Exact member set, not superset: a certificate reviewed over {A, B, C} is
+        not a certificate about {A, B}, because the reviewer answered questions
+        about the set as presented. And never one issued after ``at``, so a
+        replay cannot inherit a certification nobody had yet.
+        """
+        moment = ensure_utc(at)
+        wanted = canonical_members(members)
+        candidates = [
+            record
+            for record in self.list_certificates(event_ticker=event_ticker)
+            if record.certificate.claim is claim
+            and record.selected_members == wanted
+            and record.certificate.issued_at <= moment
+            and record.applicability(
+                current_fingerprint=current_fingerprint,
+                member_settlement_fingerprints=member_settlement_fingerprints,
+                at=moment,
+            ).permits_live_use
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda r: r.certificate.issued_at)
+
+    def history_for(self, event_ticker: str) -> list[RelationRecord]:
+        return self.list_certificates(event_ticker=event_ticker)
+
+    def list_requests(self) -> list[dict[str, Any]]:
+        if not self.requests_dir.exists():
+            return []
+        return [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(self.requests_dir.glob("*.json"))
+        ]
+
+
+def _relation_from_payload(payload: dict[str, Any]) -> RelationRecord:
+    certificate = RelationCertificate(
+        certificate_id=payload["certificate_id"],
+        claim=RelationClaim(payload["claim"]),
+        event_ticker=payload["event_ticker"],
+        selected_members=tuple(payload["selected_members"]),
+        snapshot_id=payload["snapshot_id"],
+        evidence_fingerprint=_fingerprint_from_payload(payload["evidence_fingerprint"]),
+        member_settlement_fingerprints=payload["member_settlement_fingerprints"],
+        status=RelationStatus(payload["status"]),
+        reviewer=payload["reviewer"],
+        reviewed_at=datetime.fromisoformat(payload["reviewed_at"]),
+        issued_at=datetime.fromisoformat(payload["issued_at"]),
+        valid_from=datetime.fromisoformat(payload["valid_from"]),
+        valid_to=(datetime.fromisoformat(payload["valid_to"]) if payload["valid_to"] else None),
+        policy_schema_version=payload["policy_schema_version"],
+        evidence=payload["evidence"],
+        notes=payload.get("notes", ""),
+    )
+    return RelationRecord(certificate=certificate, request_id=payload["request_id"])
