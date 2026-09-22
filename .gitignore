@@ -60,3 +60,5 @@ certificate_review_requests.json
 # documents belong to the exchange; this repository is not a mirror of them.
 data/semantics/
 relation_discovery.json
+data/replay/
+replay_comparison.json

@@ -55,7 +55,7 @@ independent status axes on every opportunity record.
 | [docs/detection.md](docs/detection.md) | Payoff states, settlement certification, profit intervals, the binary-complement canary |
 | [docs/certification.md](docs/certification.md) | Settlement evidence, fingerprinting, human review, drift and historical validity |
 | [docs/relations.md](docs/relations.md) | AT_MOST_ONE relations, the n+1 state space, NO baskets, and why exhaustiveness is out of reach |
-| docs/replay.md | *(planned)* Replay and point-in-time guarantees |
+| [docs/replay.md](docs/replay.md) | Point-in-time replay, valid vs knowledge time, bundle integrity, no-lookahead proof |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict
 widely repeated assumptions about Kalshi (prices are no longer whole cents,
@@ -63,8 +63,17 @@ contract counts are fractional, tick size varies with price level).
 
 ## Status
 
-Phase 1, step 2 complete: foundations plus the Kalshi wire and normalisation
-layer, built against real captured payloads.
+Phase 1, step 10 complete: foundations, the Kalshi wire and transport layers,
+exact book reconstruction and execution, a bounded fee engine, both detector
+families behind human-reviewed settlement certification, and point-in-time
+replay with a no-lookahead proof — all built and validated against real captured
+payloads and live read-only sessions.
+
+**No executable arbitrage has been demonstrated.** Every live decision so far is
+blocked on settlement semantics, because no Kalshi market has a human-reviewed
+settlement certificate. That is a real result, not a pending task: the system
+declines to call anything arbitrage until the contract wording proves the payoff
+is riskless.
 
 **Step 1 — foundations**
 
@@ -101,13 +110,51 @@ layer, built against real captured payloads.
 - `predarb.books.multileg` — multi-leg gross cost with collision detection
 - `predarb.domain.average_price` — exact VWAP as a ratio, not a price
 
+**Step 6 — bounded fees**
+
+- `predarb.venues.kalshi.fee_model`, `fee_engine` — the venue's rounding and
+  rebate accumulator, reproduced exactly
+- `predarb.venues.kalshi.fees` — proven per-leg fee bounds, with
+  `FeeQuote | UnavailableFee` so an unknown fee can never read as zero
+- `predarb.venues.kalshi.fee_coverage` — a census that refuses to publish
+  denominators that do not reconcile
+
+**Step 7 — payoff and the binary complement**
+
+- `predarb.domain.payoff`, `costs` — exact per-state payoff and profit intervals
+- `predarb.semantics.certificate` — settlement certificates; unknown semantics
+  fail closed
+- `predarb.detectors.binary_complement` — same-market YES+NO complement
+
+**Step 8 — settlement certification**
+
+- `predarb.semantics.evidence`, `fingerprint`, `policy`, `review`, `registry`
+- `predarb.venues.kalshi.evidence_capture` — evidence bundles and drift
+- `predarb cert` — request, review, issue, validate; append-only, never rewritten
+
+**Step 9 — relations and NO baskets**
+
+- `predarb.semantics.relation` — AT_MOST_ONE certificates over an exact member
+  set, with the n+1 state space rather than a filtered 2ⁿ
+- `predarb.detectors.no_basket` — buy-every-NO baskets
+- `predarb.venues.kalshi.relation_capture` — relation evidence and discovery
+
+**Step 10 — point-in-time replay**
+
+- `predarb.replay.observation`, `knowledge` — bitemporal observations; valid
+  time and knowledge time never conflated
+- `predarb.replay.coordinator` — the single orchestration both live and replay
+  drive; `live.LiveSession` and `engine.ReplayEngine` are its two ends
+- `predarb.replay.bundle`, `completeness`, `decision`, `plan`
+- `predarb replay` — inspect, verify, knowledge, run; offline by construction
+
 **A-09 resolved** (2026-09-16): `seq` is scoped per `sid` and is dense —
 2,752 adjacent pairs, all advancing by exactly one, zero exceptions. Every
 other candidate scope shows violations. See `docs/api_assumptions.md` A-09 for
 the evidence and the resulting Step 4 invariant.
 
-Next: book reconstruction. Detectors, storage and replay remain unbuilt — see
-`docs/architecture.md` §6 for the build order.
+Durable storage remains unbuilt — see `docs/architecture.md` §6 for the build
+order.
 
 ## Development
 
