@@ -65,6 +65,7 @@ from predarb.venues.kalshi.models import (
     KalshiEventFeeChangesResponse,
     KalshiEventsPage,
     KalshiExchangeStatus,
+    KalshiHistoricalCutoff,
     KalshiMarket,
     KalshiMarketEnvelope,
     KalshiMarketsPage,
@@ -509,6 +510,24 @@ class KalshiReadOnlyClient:
         )
         return _validate(KalshiMarketEnvelope, payload, "/markets/{ticker}").market
 
+    async def get_markets_page(
+        self, *, cursor: str | None = None, limit: int = 1000, **filters: Any
+    ) -> Page[KalshiMarket]:
+        """One page of markets. Exposed so a caller can record its cursor.
+
+        Membership enumeration has to *prove* it reached the end of a walk, and
+        the only evidence the protocol offers is the venue declining to hand
+        back another cursor. That evidence is gone once pages are flattened.
+        """
+        params: dict[str, Any] = {"limit": limit, **filters}
+        if cursor:
+            params["cursor"] = cursor
+        payload = await self._transport.get_json(
+            "/markets", path_template="/markets", params=params
+        )
+        page = _validate(KalshiMarketsPage, payload, "/markets")
+        return Page.create(page.markets, page.cursor)
+
     async def iter_markets(
         self, *, limit: int = 1000, **filters: Any
     ) -> AsyncIterator[KalshiMarket]:
@@ -520,17 +539,127 @@ class KalshiReadOnlyClient:
         """
 
         async def fetch(cursor: str | None) -> Page[KalshiMarket]:
-            params = {"limit": limit, **filters}
-            if cursor:
-                params["cursor"] = cursor
-            payload = await self._transport.get_json(
-                "/markets", path_template="/markets", params=params
-            )
-            page = _validate(KalshiMarketsPage, payload, "/markets")
-            return Page.create(page.markets, page.cursor)
+            return await self.get_markets_page(cursor=cursor, limit=limit, **filters)
 
         async for item in paginate(fetch):
             yield item
+
+    # -- historical partition ----------------------------------------------
+    #
+    # Read-only, unauthenticated, and public market data only. These exist
+    # because the live endpoints are documented to omit markets that settled
+    # before the historical cutoff, so live enumeration alone cannot answer
+    # "what markets belong to this event" (A-48).
+
+    async def get_historical_cutoff(self) -> KalshiHistoricalCutoff:
+        """The live/historical boundary as the venue currently reports it.
+
+        Fetched rather than assumed, and fetched *before* enumeration rather
+        than after: the cutoff advances over time, so a boundary read afterwards
+        might not be the one the queries actually ran against.
+        """
+        payload = await self._transport.get_json(
+            "/historical/cutoff", path_template="/historical/cutoff"
+        )
+        return _validate(KalshiHistoricalCutoff, payload, "/historical/cutoff")
+
+    async def iter_historical_markets(
+        self,
+        *,
+        limit: int = 1000,
+        event_ticker: str | None = None,
+        series_ticker: str | None = None,
+        tickers: str | None = None,
+        mve_filter: str | None = None,
+    ) -> AsyncIterator[KalshiMarket]:
+        """Stream archived markets, following cursors.
+
+        The documentation states the filters here are **mutually exclusive**, so
+        supplying two is refused locally rather than sent. A venue that silently
+        honoured one and ignored the other would return a plausible page that
+        answers a different question from the one asked -- and an enumeration
+        built on it would look complete while missing members.
+        """
+
+        async def fetch(cursor: str | None) -> Page[KalshiMarket]:
+            return await self.get_historical_markets_page(
+                cursor=cursor,
+                limit=limit,
+                event_ticker=event_ticker,
+                series_ticker=series_ticker,
+                tickers=tickers,
+                mve_filter=mve_filter,
+            )
+
+        async for item in paginate(fetch):
+            yield item
+
+    async def get_historical_markets_page(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = 1000,
+        event_ticker: str | None = None,
+        series_ticker: str | None = None,
+        tickers: str | None = None,
+        mve_filter: str | None = None,
+    ) -> Page[KalshiMarket]:
+        """One page of archived markets, with the mutual-exclusion rule enforced."""
+        selectors = {
+            "event_ticker": event_ticker,
+            "series_ticker": series_ticker,
+            "tickers": tickers,
+        }
+        supplied = {name: value for name, value in selectors.items() if value}
+        if len(supplied) > 1:
+            raise ValueError(
+                f"/historical/markets filters are mutually exclusive; got {sorted(supplied)}"
+            )
+        params: dict[str, Any] = {"limit": limit, **supplied}
+        if mve_filter:
+            params["mve_filter"] = mve_filter
+        if cursor:
+            params["cursor"] = cursor
+        payload = await self._transport.get_json(
+            "/historical/markets", path_template="/historical/markets", params=params
+        )
+        page = _validate(KalshiMarketsPage, payload, "/historical/markets")
+        return Page.create(page.markets, page.cursor)
+
+    async def get_market_payloads_page(
+        self,
+        *,
+        historical: bool,
+        cursor: str | None = None,
+        limit: int = 1000,
+        **filters: Any,
+    ) -> tuple[tuple[dict[str, Any], ...], str | None]:
+        """One page of **raw** market dicts, unvalidated, plus the next cursor.
+
+        Exists for membership enumeration, which asks a semantic question --
+        does this ticker belong to this event -- that no financial invariant
+        bears on. ``KalshiMarket`` rightly refuses a negative contract count
+        (A-49), but applying that refusal here made one bad page report an
+        entire event as having zero members.
+
+        Every other caller should use the validated accessors. This one returns
+        exactly what the venue sent, so a narrower projection can read only the
+        fields it actually needs.
+        """
+        path = "/historical/markets" if historical else "/markets"
+        params: dict[str, Any] = {"limit": limit, **{k: v for k, v in filters.items() if v}}
+        if cursor:
+            params["cursor"] = cursor
+        payload = await self._transport.get_json(path, path_template=path, params=params)
+        if not isinstance(payload, dict):
+            raise KalshiSchemaError(
+                f"expected an object, got {type(payload).__name__}", endpoint=path
+            )
+        markets = payload.get("markets") or ()
+        raw = tuple(m for m in markets if isinstance(m, dict))
+        next_cursor = payload.get("cursor")
+        cursor_text = next_cursor.strip() if isinstance(next_cursor, str) else None
+        return raw, (cursor_text or None)
 
     async def get_orderbook(self, ticker: str, *, depth: int | None = None) -> KalshiOrderbook:
         params = {"depth": depth} if depth is not None else None

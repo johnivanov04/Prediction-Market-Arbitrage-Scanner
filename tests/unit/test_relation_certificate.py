@@ -140,9 +140,17 @@ def decision_for(
 
 
 class TestClaimNarrowness:
-    def test_only_at_most_one_exists(self):
-        """No EXACTLY_ONE shortcut, even as a convenience alias."""
-        assert {c.value for c in RelationClaim} == {"AT_MOST_ONE"}
+    def test_exactly_one_has_no_primitive(self):
+        """EXACTLY_ONE is the conjunction of the two claims, not a third claim.
+
+        Adding it as a primitive would invite one human review that could
+        approve the conjunction without either half being independently
+        established. It is reached by composing two certificates over the same
+        canonical member set, which Step 12 may do.
+        """
+        assert {c.value for c in RelationClaim} == {"AT_MOST_ONE", "AT_LEAST_ONE"}
+        assert not any("EXACTLY" in c.value for c in RelationClaim)
+        assert not any("PARTITION" in c.value for c in RelationClaim)
 
     def test_the_proposition_disclaims_exhaustiveness(self):
         text = CLAIM.proposition

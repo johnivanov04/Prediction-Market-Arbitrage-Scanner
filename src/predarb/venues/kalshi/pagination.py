@@ -37,6 +37,7 @@ __all__ = [
     "PaginationLimitError",
     "collect",
     "paginate",
+    "paginate_pages",
 ]
 
 DEFAULT_MAX_PAGES: Final = 500
@@ -100,28 +101,44 @@ async def paginate[T](
     Order is preserved exactly as received, so a replay over the same captured
     responses yields the same sequence.
     """
-    if max_pages <= 0:
-        raise ValueError(f"max_pages must be positive, got {max_pages}")
     if max_items <= 0:
         raise ValueError(f"max_items must be positive, got {max_items}")
 
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    pages = 0
     items = 0
-
-    while True:
-        page = await fetch_page(cursor)
-        pages += 1
-
+    async for page in paginate_pages(fetch_page, max_pages=max_pages):
         for item in page.items:
             items += 1
             if items > max_items:
                 raise PaginationLimitError(
-                    f"exceeded max_items={max_items} after {pages} page(s); "
+                    f"exceeded max_items={max_items}; "
                     "raise the cap deliberately or narrow the query"
                 )
             yield item
+
+
+async def paginate_pages[T](
+    fetch_page: Callable[[str | None], Awaitable[Page[T]]],
+    *,
+    max_pages: int = DEFAULT_MAX_PAGES,
+) -> AsyncGenerator[Page[T]]:
+    """Stream whole pages rather than items, with the same safety properties.
+
+    Exists for callers that must *prove* a walk reached the end -- membership
+    enumeration records each cursor the venue handed back, and a trailing cursor
+    is how "we stopped early" is told apart from "there was nothing more". That
+    evidence is invisible once pages are flattened into items.
+    """
+    if max_pages <= 0:
+        raise ValueError(f"max_pages must be positive, got {max_pages}")
+
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    pages = 0
+
+    while True:
+        page = await fetch_page(cursor)
+        pages += 1
+        yield page
 
         next_cursor = page.next_cursor
         if next_cursor is None:

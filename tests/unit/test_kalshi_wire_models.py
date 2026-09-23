@@ -120,12 +120,41 @@ class TestForwardCompatibility:
         with pytest.raises(ValidationError):
             KalshiMarketEnvelope.model_validate(payload)
 
-    @pytest.mark.parametrize("bad", ["1.001", "-1.00", 13, 13.0])
+    @pytest.mark.parametrize("bad", ["1.001", 13, 13.0])
     def test_malformed_quantity_is_fatal(self, bad):
         payload = dict(load_payload("rest/market_linear_cent.json"))
         payload["market"] = {**payload["market"], "yes_bid_size_fp": bad}
         with pytest.raises(ValidationError):
             KalshiMarketEnvelope.model_validate(payload)
+
+    @pytest.mark.parametrize(
+        "field", ["yes_bid_size_fp", "yes_ask_size_fp", "no_bid_size_fp", "no_ask_size_fp"]
+    )
+    def test_a_negative_top_of_book_size_is_quarantined_not_zeroed(self, field):
+        """``/historical/markets`` sends these negative on finalized markets (A-49).
+
+        A negative contract count is not a quantity, so it cannot be parsed as
+        one; and it must not become ``0``, because zero is a real answer that
+        would make an archived market look like a live one with an empty book.
+        The raw value is kept and the field reads absent.
+        """
+        payload = dict(load_payload("rest/market_linear_cent.json"))
+        payload["market"] = {**payload["market"], field: "-389.00"}
+        market = KalshiMarketEnvelope.model_validate(payload).market
+        assert getattr(market, field) is None
+        assert market.quote_size_anomalies == {field: "-389.00"}
+
+    @pytest.mark.parametrize("field", ["volume_fp", "volume_24h_fp", "open_interest_fp"])
+    def test_other_negative_counts_are_still_fatal(self, field):
+        """The carve-out is for top-of-book sizes only, not negative counts at large."""
+        payload = dict(load_payload("rest/market_linear_cent.json"))
+        payload["market"] = {**payload["market"], field: "-5.00"}
+        with pytest.raises(ValidationError):
+            KalshiMarketEnvelope.model_validate(payload)
+
+    def test_a_clean_market_records_no_quote_size_anomaly(self):
+        payload = dict(load_payload("rest/market_linear_cent.json"))
+        assert KalshiMarketEnvelope.model_validate(payload).market.quote_size_anomalies == {}
 
     def test_missing_required_identifier_is_fatal(self):
         with pytest.raises(ValidationError):

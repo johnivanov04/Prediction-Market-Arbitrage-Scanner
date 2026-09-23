@@ -200,7 +200,13 @@ class KalshiReplayContext:
             return (
                 RelationCertificate(
                     certificate_id=str(record["certificate_id"]),
-                    claim=RelationClaim.AT_MOST_ONE,
+                    # The recorded claim, never a default. A bundle carrying an
+                    # AT_LEAST_ONE certificate must not be silently replayed as
+                    # AT_MOST_ONE: the two forbid opposite states, and the
+                    # basket detector would then be handed a guarantee nobody
+                    # reviewed. An unrecognised claim raises here rather than
+                    # falling back.
+                    claim=RelationClaim(record.get("claim", RelationClaim.AT_MOST_ONE.value)),
                     event_ticker=plan.event_ticker,
                     selected_members=tuple(record.get("selected_members", plan.members)),
                     snapshot_id=str(record.get("snapshot_id", "recorded")),

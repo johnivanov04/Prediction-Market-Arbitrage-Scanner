@@ -9,6 +9,7 @@ analogue of a crossed complement.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -683,11 +684,29 @@ class TestPurity:
         ):
             assert forbidden not in source, f"detector must not use {forbidden}"
 
-    def test_no_exhaustiveness_relation_is_referenced(self):
-        assert detector_module.__file__ is not None
-        source = Path(detector_module.__file__).read_text()
-        for forbidden in ("AT_LEAST_ONE", "EXACTLY_ONE", "PARTITION"):
-            assert forbidden not in source
+    def test_an_exhaustiveness_relation_is_refused_not_repriced(self):
+        """An AT_LEAST_ONE certificate must not be priced as AT_MOST_ONE.
+
+        This detector's payoff table *is* the AT_MOST_ONE state space: n + 1
+        states, one per possible single winner plus none-of-them. AT_LEAST_ONE
+        forbids a different terminal state and permits several members winning
+        at once, so accepting one here would price a basket against a guarantee
+        nobody reviewed. Checked behaviourally rather than by grepping the
+        source, because the refusal is the property that matters.
+        """
+        relation = replace(relation_certificate(["A", "B", "C"]), claim=RelationClaim.AT_LEAST_ONE)
+        result = evaluate(relation=relation)
+
+        assert result.classification is Classification.BLOCKED_SETTLEMENT_SEMANTICS
+        assert result.semantic_status is not SemanticStatus.VERIFIED
+        assert "AT_LEAST_ONE" in (result.blocking_reason or "")
+        assert "not interchangeable" in (result.blocking_reason or "")
+        assert result.portfolio_payoff is None
+
+    def test_exactly_one_and_partition_have_no_detector_path(self):
+        """Neither claim exists as a primitive, so neither can reach this code."""
+        assert not any("EXACTLY" in c.value for c in RelationClaim)
+        assert not any("PARTITION" in c.value for c in RelationClaim)
 
     def test_the_evaluation_instant_is_supplied(self):
         assert evaluate().detected_at == T0

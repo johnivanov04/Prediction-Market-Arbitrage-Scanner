@@ -55,6 +55,7 @@ independent status axes on every opportunity record.
 | [docs/detection.md](docs/detection.md) | Payoff states, settlement certification, profit intervals, the binary-complement canary |
 | [docs/certification.md](docs/certification.md) | Settlement evidence, fingerprinting, human review, drift and historical validity |
 | [docs/relations.md](docs/relations.md) | AT_MOST_ONE relations, the n+1 state space, NO baskets, and why exhaustiveness is out of reach |
+| [docs/exhaustiveness.md](docs/exhaustiveness.md) | Venue membership vs outcome exhaustiveness, AT_LEAST_ONE, why `mutually_exclusive` is insufficient |
 | [docs/replay.md](docs/replay.md) | Point-in-time replay, valid vs knowledge time, bundle integrity, no-lookahead proof |
 
 **Start with `docs/api_assumptions.md`.** Several findings there contradict

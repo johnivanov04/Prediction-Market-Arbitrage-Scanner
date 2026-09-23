@@ -86,6 +86,7 @@ from predarb.semantics.fingerprint import SettlementEvidenceFingerprint
 from predarb.semantics.relation import (
     MIN_BASKET_MEMBERS,
     RelationCertificate,
+    RelationClaim,
     canonical_members,
 )
 
@@ -258,6 +259,19 @@ def _semantic_blocking_reason(
     at: datetime,
 ) -> tuple[str, tuple[str, ...]] | None:
     """Every semantic precondition, checked before any number is computed."""
+    # The claim itself, checked first. This detector's whole payoff table is the
+    # AT_MOST_ONE state space -- n + 1 states, one per possible single winner
+    # plus none-of-them. An AT_LEAST_ONE certificate forbids a different state
+    # and permits multiple simultaneous winners, so using one here would price a
+    # basket against a guarantee nobody reviewed. There is no fallback: a claim
+    # this detector does not model is a refusal, not a default.
+    if relation.claim is not RelationClaim.AT_MOST_ONE:
+        return (
+            f"relation certificate asserts {relation.claim.value}, but this detector "
+            "prices the AT_MOST_ONE state space; the two forbid different terminal "
+            "states and are not interchangeable",
+            (),
+        )
     supplied = canonical_members([member.ticker for member in members])
     if len(supplied) < MIN_BASKET_MEMBERS:
         return (

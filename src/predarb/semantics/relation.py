@@ -12,22 +12,35 @@ needs both:
 Overloading one certificate to mean both would let a market with proven payoff
 semantics and an unreviewed relation look identical to one with both.
 
-Why AT_MOST_ONE and nothing else
---------------------------------
-``GET /events`` omits markets settled before the historical cutoff (A-46), so
-the returned market list is **current observed membership, never proven
-exhaustive membership**.
+Two claims, with very different proof burdens
+--------------------------------------------
+``AT_MOST_ONE`` is cheap to hold. Its state space over a selected subset is:
+none of the selected markets settles YES, or exactly one does. A winner
+*outside* the subset -- including a historical market the API never returned --
+is economically identical, from the basket's point of view, to "all selected
+markets settle NO", which is already an enumerated state. Incomplete membership
+cannot falsify it.
 
-AT_MOST_ONE survives that. Its state space over a selected subset is: none of
-the selected markets settles YES, or exactly one does. A winner *outside* the
-subset -- including a historical market the API never returned -- is
-economically identical, from the basket's point of view, to "all selected
-markets settle NO", which is already an enumerated state.
+``AT_LEAST_ONE`` is the opposite. It asserts that some outcome **must** occur
+among the selected set, so every outcome the set fails to cover is a
+counterexample. Enumerating Kalshi's markets does not help: the venue may
+simply never have listed a market for an outcome, and no query discovers an
+absence the catalogue does not contain. ``mutually_exclusive`` does not help
+either -- it is documented as an upper bound on YES resolutions and says
+nothing about the minimum (A-52).
 
-AT_LEAST_ONE, EXACTLY_ONE and PARTITION do not survive it. Each asserts that
-some outcome *must* occur among a known set, which is precisely a completeness
-claim about a set the venue does not guarantee is complete. None is implemented,
-and no convenience alias exists for them.
+So AT_LEAST_ONE rests on the governing contract, read by a human, and its
+checklist is written around the one thing that can falsify it:
+
+    the ALL-NO terminal state.
+
+For AT_MOST_ONE, ALL-NO is a perfectly valid outcome. For AT_LEAST_ONE it is
+the forbidden state, and the certificate has to say why it cannot happen.
+
+``EXACTLY_ONE`` is still absent, deliberately. It is the conjunction of the two
+claims above, and the right way to reach it is to compose two independently
+reviewed certificates over the same canonical member set -- not to invite a
+third human review that could approve the conjunction without either half.
 
 Selected subsets, not events
 ----------------------------
@@ -41,7 +54,7 @@ the reviewed subset's relation false.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -57,10 +70,14 @@ from predarb.semantics.fingerprint import ABSENT, SettlementEvidenceFingerprint
 from predarb.semantics.review import ChecklistAnswer, ChecklistQuestion, Decision
 
 __all__ = [
+    "ALL_SELECTED_MEMBERS_LOSE",
+    "AT_LEAST_ONE_CHECKLIST",
     "AT_MOST_ONE_CHECKLIST",
+    "MAX_ENUMERABLE_MEMBERS",
     "MIN_BASKET_MEMBERS",
     "NO_SELECTED_MEMBER_WINS",
     "RELATION_EVIDENCE_SCHEMA_VERSION",
+    "JointStateRule",
     "MemberEvidence",
     "RelationCertificate",
     "RelationClaim",
@@ -71,6 +88,8 @@ __all__ = [
     "RelationStatus",
     "at_most_one_states",
     "canonical_members",
+    "checklist_for_claim",
+    "enumerate_joint_assignments",
     "issue_relation_certificate",
     "relation_certificate_id",
 ]
@@ -85,6 +104,18 @@ winner outside the subset lands here too, which is exactly why the claim
 tolerates incomplete membership.
 """
 
+ALL_SELECTED_MEMBERS_LOSE: Final = "ALL_SELECTED_MEMBERS_NO"
+"""The joint state where every selected market settles NO.
+
+The same physical outcome carries opposite weight under the two claims, which is
+the clearest way to see that they are different propositions:
+
+    AT_MOST_ONE   ALL-NO is permitted -- nothing was claimed to be certain
+    AT_LEAST_ONE  ALL-NO is **forbidden** -- it is the only way the claim fails
+
+An AT_LEAST_ONE certificate exists to document why this state cannot be reached.
+"""
+
 MIN_BASKET_MEMBERS: Final = 2
 """A one-member AT_MOST_ONE basket is economically meaningless.
 
@@ -97,11 +128,13 @@ rather than silently allowed.
 class RelationClaim(StrEnum):
     """The logical proposition a relation certificate asserts.
 
-    Exactly one member, deliberately. Adding ``EXACTLY_ONE`` here would invite
-    a detector for it, and event membership cannot be shown exhaustive (A-46).
+    Two members. ``EXACTLY_ONE`` is deliberately absent: it is the conjunction
+    of both, and composing two independently reviewed certificates is safer than
+    inviting one review that could approve the conjunction without either half.
     """
 
     AT_MOST_ONE = "AT_MOST_ONE"
+    AT_LEAST_ONE = "AT_LEAST_ONE"
 
     @property
     def proposition(self) -> str:
@@ -111,8 +144,32 @@ class RelationClaim(StrEnum):
                 "settle YES under the reviewed evidence. This asserts nothing "
                 "about whether any of them must settle YES, and does not claim "
                 "the selected set is exhaustive."
-            )
+            ),
+            RelationClaim.AT_LEAST_ONE: (
+                "Among these selected certified member markets, at least one "
+                "MUST settle YES under the reviewed evidence: there is no "
+                "permitted terminal state in which every selected member settles "
+                "NO. This asserts nothing about whether two of them could both "
+                "settle YES, says nothing about notionals, liquidity or "
+                "profitability, and is not a claim that the venue's market list "
+                "is complete."
+            ),
         }[self]
+
+    @property
+    def forbids_all_no(self) -> bool:
+        """Whether every-member-NO is a counterexample to this claim."""
+        return self is RelationClaim.AT_LEAST_ONE
+
+    @property
+    def permits_multiple_yes(self) -> bool:
+        """Whether two members settling YES is compatible with this claim.
+
+        ``True`` for AT_LEAST_ONE. Reading it as "exactly one" is the easiest
+        mistake to make about this relation and the one that would silently
+        import a mutual-exclusion guarantee nobody reviewed.
+        """
+        return self is RelationClaim.AT_LEAST_ONE
 
 
 class RelationStatus(StrEnum):
@@ -160,6 +217,95 @@ def at_most_one_states(members: Sequence[str]) -> tuple[SettlementState, ...]:
     """
     ordered = canonical_members(members)
     return (SettlementState(NO_SELECTED_MEMBER_WINS), *(SettlementState(t) for t in ordered))
+
+
+@dataclass(frozen=True, slots=True)
+class JointStateRule:
+    """Which joint YES/NO assignments a relation permits, stated symbolically.
+
+    Symbolic on purpose. ``AT_LEAST_ONE`` over n members permits ``2**n - 1``
+    assignments, and materialising those for a 300-member event -- one was
+    observed live -- is not a state space, it is a denial-of-service. The rule
+    is a predicate plus a description of what it forbids, which is all any
+    certification logic needs.
+
+    The two claims are mirror images at exactly one point:
+
+        AT_MOST_ONE    forbids two or more YES; ALL-NO is fine
+        AT_LEAST_ONE   forbids ALL-NO; two or more YES is fine
+    """
+
+    claim: RelationClaim
+    members: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "members", canonical_members(self.members))
+
+    def permits(self, yes_members: Iterable[str]) -> bool:
+        """Whether this joint assignment is compatible with the claim."""
+        winners = set(yes_members)
+        unknown = winners - set(self.members)
+        if unknown:
+            raise ValueError(
+                f"{sorted(unknown)} are not members of this relation; a joint state "
+                "must be expressed over the exact certified member set"
+            )
+        if self.claim is RelationClaim.AT_MOST_ONE:
+            return len(winners) <= 1
+        return len(winners) >= 1
+
+    @property
+    def forbidden_state(self) -> str | None:
+        """The single named state this claim rules out, where there is one."""
+        return ALL_SELECTED_MEMBERS_LOSE if self.claim.forbids_all_no else None
+
+    def forbidden_description(self) -> str:
+        if self.claim is RelationClaim.AT_LEAST_ONE:
+            return (
+                f"{ALL_SELECTED_MEMBERS_LOSE}: every one of "
+                f"{list(self.members)} settles NO. This is the only terminal "
+                "state that falsifies AT_LEAST_ONE, and the certificate must "
+                "document why it cannot be reached."
+            )
+        return (
+            f"two or more of {list(self.members)} settle YES simultaneously. "
+            f"{ALL_SELECTED_MEMBERS_LOSE} is permitted under AT_MOST_ONE."
+        )
+
+    def describe(self) -> str:
+        return (
+            f"{self.claim.value} over {len(self.members)} member(s); "
+            f"forbids {self.forbidden_description()}"
+        )
+
+
+MAX_ENUMERABLE_MEMBERS: Final = 12
+"""Above this, joint assignments are never materialised.
+
+``2 ** 12`` is 4,096 -- large enough for any synthetic test and small enough
+that an accidental enumeration is a slow test rather than an outage.
+"""
+
+
+def enumerate_joint_assignments(
+    rule: JointStateRule, *, max_members: int = MAX_ENUMERABLE_MEMBERS
+) -> tuple[tuple[tuple[str, ...], bool], ...]:
+    """Every YES subset and whether the rule permits it. **Tests only.**
+
+    Exists so the symbolic predicate can be checked exhaustively against a real
+    enumeration on small sets. Nothing in certification or detection calls it,
+    and it refuses to run on a set large enough for that to matter.
+    """
+    if len(rule.members) > max_members:
+        raise ValueError(
+            f"refusing to enumerate 2**{len(rule.members)} assignments; the relation "
+            "is represented symbolically and does not need them"
+        )
+    results: list[tuple[tuple[str, ...], bool]] = []
+    for mask in range(1 << len(rule.members)):
+        winners = tuple(ticker for index, ticker in enumerate(rule.members) if mask & (1 << index))
+        results.append((winners, rule.permits(winners)))
+    return tuple(results)
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +374,29 @@ class RelationEvidenceBundle:
     source_refs: Mapping[str, str] = field(default_factory=dict)
     capture_errors: tuple[str, ...] = ()
 
+    exhaustiveness_basis: str | None = None
+    """What an AT_LEAST_ONE proof **logically rests on**. ``None`` for
+    AT_MOST_ONE, which has no exhaustiveness burden. Only a
+    :class:`~predarb.semantics.exhaustiveness.ProofBasis` value is admissible
+    here -- venue membership coverage is not one of them."""
+
+    supporting_evidence: tuple[str, ...] = ()
+    """Corroboration the proof cites without resting on. Recorded separately
+    from the basis so nobody can read "we enumerated the catalogue" as the
+    reason the claim is true."""
+
+    membership_fingerprint: str | None = None
+    """Digest of the venue membership evidence, when the claim relies on it.
+
+    Whether this is material depends on the basis, which is why the basis is
+    recorded. A proof from contract language must not have its certificate
+    invalidated because the venue listed an unrelated market; a proof from
+    catalogue coverage must be invalidated exactly then."""
+
+    membership_is_material: bool = False
+    partition_fingerprint: str | None = None
+    partition_is_material: bool = False
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "captured_at", ensure_utc(self.captured_at))
         object.__setattr__(self, "selected_members", canonical_members(self.selected_members))
@@ -260,7 +429,23 @@ class RelationEvidenceBundle:
         """
         values: dict[str, Any] = {
             "relation.selected_members": list(self.selected_members),
+            "relation.exhaustiveness_basis": (
+                self.exhaustiveness_basis if self.exhaustiveness_basis else ABSENT
+            ),
+            "relation.supporting_evidence": sorted(self.supporting_evidence),
         }
+        # Relied-upon evidence is material; the same evidence unrelied-upon is
+        # audit-only. Binding it unconditionally would expire certificates on
+        # changes their proofs never consulted, and teaching reviewers to ignore
+        # drift is exactly what drift detection must not do.
+        if self.membership_is_material:
+            values["relation.membership_evidence"] = (
+                self.membership_fingerprint if self.membership_fingerprint else ABSENT
+            )
+        if self.partition_is_material:
+            values["relation.partition_evidence"] = (
+                self.partition_fingerprint if self.partition_fingerprint else ABSENT
+            )
         for name, value in self.event_fields.items():
             values[f"event.{name}"] = value
         for member in self.member_evidence:
@@ -289,7 +474,13 @@ class RelationEvidenceBundle:
         return {
             "relation.observed_event_membership_NOT_PROVEN_EXHAUSTIVE": sorted(
                 self.observed_event_membership
-            )
+            ),
+            "relation.membership_evidence_audit_only": (
+                None if self.membership_is_material else self.membership_fingerprint
+            ),
+            "relation.partition_evidence_audit_only": (
+                None if self.partition_is_material else self.partition_fingerprint
+            ),
         }
 
     def member(self, ticker: str) -> MemberEvidence | None:
@@ -328,6 +519,170 @@ class RelationEvidenceBundle:
             f"members (event currently returns {len(self.observed_event_membership)}) "
             f"snapshot {self.snapshot_id[:12]}"
         )
+
+
+AT_LEAST_ONE_CHECKLIST: Final[tuple[ChecklistQuestion, ...]] = (
+    ChecklistQuestion(
+        key="outcome_universe_identified",
+        prompt=(
+            "What real-world outcome universe does this event cover, and is it "
+            "stated precisely enough in the governing evidence to be closed?"
+        ),
+        safe_answers=(ChecklistAnswer.YES,),
+        why_it_matters=(
+            "AT_LEAST_ONE is a statement about a universe of outcomes. Until the "
+            "universe is pinned down there is nothing for the member set to be "
+            "exhaustive *of*."
+        ),
+    ),
+    ChecklistQuestion(
+        key="rules_guarantee_one_occurs",
+        prompt=(
+            "Does the governing evidence explicitly guarantee that one of the "
+            "selected propositions must occur?"
+        ),
+        safe_answers=(ChecklistAnswer.YES,),
+        why_it_matters=(
+            "This is the claim itself. It must come from contract language, not "
+            "from the member list looking complete."
+        ),
+    ),
+    ChecklistQuestion(
+        key="all_outcomes_represented",
+        prompt=(
+            "Is every possible outcome -- named, unnamed, write-in, 'other' or "
+            "field -- represented by a selected member?"
+        ),
+        safe_answers=(ChecklistAnswer.YES,),
+        why_it_matters=(
+            "One unrepresented outcome is one path to ALL-NO, which is the only "
+            "state that falsifies the claim."
+        ),
+    ),
+    ChecklistQuestion(
+        key="can_end_with_none_true",
+        prompt=(
+            "Could the event conclude with no selected proposition being true -- "
+            "including the event never occurring?"
+        ),
+        safe_answers=(ChecklistAnswer.NO,),
+        why_it_matters="This asks for ALL-NO directly, in the plainest terms available.",
+    ),
+    ChecklistQuestion(
+        key="cancellation_settles_all_no",
+        prompt=(
+            "Could cancellation, postponement, abandonment or DNP cause every "
+            "selected market to settle NO?"
+        ),
+        safe_answers=(ChecklistAnswer.NO,),
+        why_it_matters=(
+            "The most common real route to ALL-NO. A contest that is never held "
+            "usually has no winner, and every 'X wins' market settles NO."
+        ),
+    ),
+    ChecklistQuestion(
+        key="void_or_refund_possible",
+        prompt="Could void or refund semantics apply to some but not all members?",
+        safe_answers=(ChecklistAnswer.NO,),
+        why_it_matters=(
+            "A void member is neither YES nor NO, so the joint state leaves the "
+            "model the certificate was reviewed against."
+        ),
+    ),
+    ChecklistQuestion(
+        key="scalar_prevents_full_yes",
+        prompt=(
+            "Could a scalar or fair-price mechanism mean no member is a full YES "
+            "winner at the notional?"
+        ),
+        safe_answers=(ChecklistAnswer.NO,),
+        why_it_matters=(
+            "AT_LEAST_ONE is defined over a *full* winning payoff. If members can "
+            "settle fractionally, 'at least one settled YES' stops meaning 'at "
+            "least one paid the notional', and the claim no longer supports the "
+            "economics it exists for."
+        ),
+    ),
+    ChecklistQuestion(
+        key="ties_or_co_winners_understood",
+        prompt="Are ties or co-winners possible, and are their settlement rules captured?",
+        safe_answers=(ChecklistAnswer.YES, ChecklistAnswer.NOT_APPLICABLE),
+        why_it_matters=(
+            "Co-winners do not break AT_LEAST_ONE -- multiple YES is permitted -- "
+            "but a tie rule that voids the contest instead does, so the rule has "
+            "to be read either way."
+        ),
+    ),
+    ChecklistQuestion(
+        key="member_set_covers_universe",
+        prompt=(
+            "Is the selected member set complete for the claimed outcome universe, "
+            "rather than merely complete for what the venue happens to list?"
+        ),
+        safe_answers=(ChecklistAnswer.YES,),
+        why_it_matters=(
+            "Kalshi may simply never have created a market for an outcome. No "
+            "query discovers an absence the catalogue does not contain."
+        ),
+    ),
+    ChecklistQuestion(
+        key="membership_enumeration_exhausted",
+        prompt=(
+            "If this claim relies on covering all of the event's Kalshi markets, "
+            "was live + historical enumeration exhausted with the cutoff stable?"
+        ),
+        safe_answers=(ChecklistAnswer.YES, ChecklistAnswer.NOT_APPLICABLE),
+        why_it_matters=(
+            "Reading the nested event view alone omits archived members on 46% of "
+            "events (A-50). NOT_APPLICABLE is the honest answer when the proof "
+            "rests on contract language rather than on covering the catalogue."
+        ),
+    ),
+    ChecklistQuestion(
+        key="governing_documents_reviewed",
+        prompt="Are all governing documents captured, current and actually read?",
+        safe_answers=(ChecklistAnswer.YES,),
+        why_it_matters=(
+            "A referenced but unretrieved contract is the single most likely place "
+            "for the clause that creates an ALL-NO path."
+        ),
+    ),
+    ChecklistQuestion(
+        key="claim_is_not_mutual_exclusion",
+        prompt=(
+            "Is this claim strictly AT_LEAST_ONE, and NOT being used to assert "
+            "mutual exclusion or exactly-one?"
+        ),
+        safe_answers=(ChecklistAnswer.YES,),
+        why_it_matters=(
+            "AT_LEAST_ONE permits two, three or all members settling YES. Reading "
+            "it as exactly-one would import a mutual-exclusion guarantee nobody "
+            "reviewed."
+        ),
+    ),
+)
+"""The AT_LEAST_ONE review checklist.
+
+Every question is aimed at one target: is there a terminal state in which every
+selected member settles NO? Any answer outside ``safe_answers`` -- ``UNCERTAIN``
+included -- blocks approval, because the claim is a conjunction of these
+propositions and an uncertain conjunct makes the conjunction uncertain.
+"""
+
+
+def checklist_for_claim(claim: RelationClaim) -> tuple[ChecklistQuestion, ...]:
+    """The review questions this claim must survive.
+
+    Routed by claim rather than shared, because the two ask opposite things of
+    the same facts. "Could cancellation produce multiple YES outcomes?" must be
+    NO for AT_MOST_ONE; "could cancellation make every member settle NO?" must
+    be NO for AT_LEAST_ONE. One checklist covering both would have to be
+    satisfied by contradictory answers.
+    """
+    return {
+        RelationClaim.AT_MOST_ONE: AT_MOST_ONE_CHECKLIST,
+        RelationClaim.AT_LEAST_ONE: AT_LEAST_ONE_CHECKLIST,
+    }[claim]
 
 
 AT_MOST_ONE_CHECKLIST: Final[tuple[ChecklistQuestion, ...]] = (
@@ -445,6 +800,7 @@ class RelationReviewRequest:
         claim: RelationClaim,
         generated_at: datetime,
         notes: Sequence[str] = (),
+        extra_incompleteness: Sequence[str] = (),
     ) -> Self:
         reasons: list[str] = []
         if len(bundle.selected_members) < MIN_BASKET_MEMBERS:
@@ -452,6 +808,10 @@ class RelationReviewRequest:
                 f"only {len(bundle.selected_members)} selected member(s); "
                 f"at least {MIN_BASKET_MEMBERS} are needed for the claim to say anything"
             )
+        # AT_LEAST_ONE carries its own, stricter requirements. They are supplied
+        # by the caller rather than derived here, because judging them needs the
+        # membership and partition evidence, which lives outside this module.
+        reasons.extend(extra_incompleteness)
         # Deliberately NOT a condition: whether members already hold payout
         # certificates. A relation review answers "can two of these both settle
         # YES?", which is judged from the rules, not from whether someone has
@@ -485,7 +845,7 @@ class RelationReviewRequest:
             incompleteness_reasons=tuple(reasons),
             observed_event_membership=bundle.observed_event_membership,
             generated_at=generated_at,
-            checklist=AT_MOST_ONE_CHECKLIST,
+            checklist=checklist_for_claim(claim),
             policy_schema_version=RELATION_EVIDENCE_SCHEMA_VERSION,
             notes=tuple(notes),
         )

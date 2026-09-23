@@ -13,6 +13,7 @@ from __future__ import annotations
 import typer
 
 from predarb import __version__
+from predarb.cli.relations import relations_app
 from predarb.cli.replay_cli import replay_app
 from predarb.cli.semantics import certificates_app, evidence_app
 from predarb.config import Settings
@@ -26,6 +27,7 @@ app = typer.Typer(
 
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(certificates_app, name="certificates")
+app.add_typer(relations_app, name="relations")
 app.add_typer(replay_app, name="replay")
 
 _NOT_YET = "Not implemented yet. See docs/architecture.md section 6 for build order."

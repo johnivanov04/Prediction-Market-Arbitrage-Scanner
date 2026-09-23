@@ -48,6 +48,7 @@ from predarb.semantics.certificate import (
 )
 from predarb.semantics.evidence import SettlementEvidenceBundle
 from predarb.semantics.fingerprint import Absent, SettlementEvidenceFingerprint
+from predarb.semantics.membership import CombinedVenueMembershipEvidence
 from predarb.semantics.policy import CertificateClaim, policy_for
 from predarb.semantics.relation import (
     RelationCertificate,
@@ -691,6 +692,7 @@ class RelationRegistry:
         self.requests_dir = root / "relation_requests"
         self.decisions_dir = root / "relation_decisions"
         self.certificates_dir = root / "relation_certificates"
+        self.membership_dir = root / "venue_membership"
 
     def _ensure(self) -> None:
         for directory in (
@@ -698,6 +700,7 @@ class RelationRegistry:
             self.requests_dir,
             self.decisions_dir,
             self.certificates_dir,
+            self.membership_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -756,9 +759,42 @@ class RelationRegistry:
                 },
                 "source_refs": dict(bundle.source_refs),
                 "capture_errors": list(bundle.capture_errors),
+                # What an AT_LEAST_ONE proof rests on, and which supporting
+                # evidence it actually relies on. Stored so a later reader can
+                # tell a certificate that would be invalidated by a membership
+                # change from one that would not.
+                "exhaustiveness_basis": bundle.exhaustiveness_basis,
+                "supporting_evidence": list(bundle.supporting_evidence),
+                "membership_fingerprint": bundle.membership_fingerprint,
+                "membership_is_material": bundle.membership_is_material,
+                "partition_fingerprint": bundle.partition_fingerprint,
+                "partition_is_material": bundle.partition_is_material,
                 "fingerprint": _fingerprint_payload(bundle.fingerprint()),
             },
         )
+
+    def store_membership(self, evidence: CombinedVenueMembershipEvidence) -> Path:
+        """Store venue membership evidence beside the relation it supports.
+
+        Its own record, not a field on the relation bundle: membership is a
+        fact about a catalogue and a relation is a claim about the world, and a
+        reviewer needs to see which is which.
+        """
+        return self._write(
+            self.membership_dir / f"{evidence.snapshot_id}.json", evidence.audit_payload()
+        )
+
+    def load_membership(self, snapshot_id: str) -> dict[str, Any] | None:
+        path = self.membership_dir / f"{snapshot_id}.json"
+        if not path.exists():
+            matches = [
+                p for p in self.membership_dir.glob("*.json") if p.stem.startswith(snapshot_id)
+            ]
+            if len(matches) != 1:
+                return None
+            path = matches[0]
+        payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return payload
 
     def store_request(self, request: RelationReviewRequest) -> Path:
         return self._write(

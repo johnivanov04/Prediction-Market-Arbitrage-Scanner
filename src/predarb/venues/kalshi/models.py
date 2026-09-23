@@ -53,9 +53,16 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any, ClassVar, TypeVar
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, PlainSerializer, field_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    PlainSerializer,
+    field_validator,
+    model_validator,
+)
 
 from predarb.clock import ensure_utc
 from predarb.domain.money import Money, Price, Quantity, QuantityDelta
@@ -79,6 +86,7 @@ __all__ = [
     "KalshiEventsPage",
     "KalshiExchangeShardStatus",
     "KalshiExchangeStatus",
+    "KalshiHistoricalCutoff",
     "KalshiMarket",
     "KalshiMarketEnvelope",
     "KalshiMarketsPage",
@@ -295,6 +303,12 @@ class KalshiEvent(_WireModel):
     :attr:`KalshiEventEnvelope.member_markets` rather than either field
     directly."""
 
+    product_metadata: dict[str, Any] | None = None
+    """Documented only as "additional metadata for the event" with no schema.
+
+    Preserved verbatim as an opaque mapping. Nothing is inferred from its keys:
+    an undocumented field cannot carry a settlement guarantee (A-53)."""
+
     fee_type_override: str | None = None
     fee_multiplier_override: MultiplierField | None = None
     last_updated_ts: datetime | None = None
@@ -396,9 +410,30 @@ class KalshiMarket(_WireModel):
     custom_strike: dict[str, str] | None = None
 
     # --- structure ---
+    quote_size_anomalies: dict[str, str] = {}
+    """Top-of-book size fields the venue sent as something that is not a
+    contract count, kept verbatim.
+
+    ``GET /historical/markets`` returns **negative** ``yes_bid_size_fp`` and
+    ``yes_ask_size_fp`` on finalized markets -- residual fields on a market that
+    has no book at all (A-49). A negative contract count is not a quantity, so
+    it cannot become a :class:`Quantity`; and it must not become ``0`` either,
+    because zero is a real, tradeable answer that would make an archived market
+    look like a live one with an empty book. It is therefore moved here and the
+    field itself reads absent, which is what it truthfully is."""
+
     mve_collection_ticker: str | None = None
     mve_selected_legs: NullableTuple[KalshiMveLeg] = ()
+    primary_participant_key: str | None = None
+    """Opaque participant identifier. Documented without an enumerated meaning,
+    so it is preserved verbatim and never used to infer that two markets are
+    about the same or different real-world outcomes (A-52)."""
+
     is_provisional: bool | None = None
+    """``true`` means the venue may **remove** this market after determination
+    if it saw no activity. Membership can therefore shrink, not only grow, which
+    is why a membership snapshot is point-in-time in both directions (A-51)."""
+
     occurrence_datetime: datetime | None = None
     exchange_index: int | None = None
 
@@ -414,6 +449,35 @@ class KalshiMarket(_WireModel):
         "fee_waiver_expiration_time",
         "occurrence_datetime",
     )(_ensure_utc_optional)
+
+    _QUOTE_SIZE_FIELDS: ClassVar[tuple[str, ...]] = (
+        "yes_bid_size_fp",
+        "yes_ask_size_fp",
+        "no_bid_size_fp",
+        "no_ask_size_fp",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _quarantine_invalid_quote_sizes(cls, data: Any) -> Any:
+        """Move an impossible top-of-book size aside instead of failing the page.
+
+        Scoped deliberately to the four top-of-book size fields. A negative
+        ``volume_fp`` or ``open_interest_fp`` would be a different and more
+        alarming claim, and is still rejected: this is a carve-out for one
+        observed venue behaviour, not a general tolerance for negative counts.
+        """
+        if not isinstance(data, dict):
+            return data
+        anomalies: dict[str, str] = dict(data.get("quote_size_anomalies") or {})
+        for name in cls._QUOTE_SIZE_FIELDS:
+            raw = data.get(name)
+            if isinstance(raw, str) and raw.strip().startswith("-"):
+                anomalies[name] = raw
+                data = {**data, name: None}
+        if anomalies:
+            data = {**data, "quote_size_anomalies": anomalies}
+        return data
 
     @field_validator("floor_strike", "cap_strike", mode="before")
     @classmethod
@@ -564,6 +628,38 @@ class KalshiExchangeStatus(_WireModel):
     trading_active: bool | None = None
     intra_exchange_transfers_active: bool | None = None
     exchange_index_statuses: NullableTuple[KalshiExchangeShardStatus] = ()
+
+
+# --------------------------------------------------------------------------
+# Historical data partition
+# --------------------------------------------------------------------------
+# Kalshi splits exchange data into a live tier and a historical tier, separated
+# by cutoff timestamps that advance over time. A market that settled before
+# ``market_settled_ts`` is reachable only through ``GET /historical/markets``;
+# the live ``GET /markets`` will not return it, and neither will
+# ``GET /events/{ticker}?with_nested_markets=true``. Both exclusions are stated
+# in the current official documentation (A-48).
+
+
+class KalshiHistoricalCutoff(_WireModel):
+    """``GET /historical/cutoff`` -- the live/historical boundary.
+
+    Only ``market_settled_ts`` matters to this project. The other cutoffs
+    govern fills, orders and positions, which Phase 1 never reads; they are
+    modelled so an unexpected schema change is visible rather than silent.
+    """
+
+    market_settled_ts: datetime | None = None
+    trades_created_ts: datetime | None = None
+    orders_updated_ts: datetime | None = None
+    market_positions_last_updated_ts: datetime | None = None
+
+    _utc = field_validator(
+        "market_settled_ts",
+        "trades_created_ts",
+        "orders_updated_ts",
+        "market_positions_last_updated_ts",
+    )(_ensure_utc_optional)
 
 
 # --------------------------------------------------------------------------

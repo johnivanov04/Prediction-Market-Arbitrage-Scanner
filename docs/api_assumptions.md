@@ -1335,6 +1335,159 @@ Ordered by how much damage a wrong guess would do.
 | Is `seq` dense or merely monotonic? (A-09) | Resolved: dense within a sid; zero skips, duplicates or decreases observed |
 | Does `seq` survive reconnect? (A-09) | Resolved: no — both reconnects restarted at `seq = 1` |
 
+### A-48 Live and historical markets are partitioned by a moving cutoff — DOCUMENTED, partition not strict in practice
+
+Current official documentation states the boundary explicitly.
+
+`GET /markets`:
+
+> Markets that settled before the historical cutoff are only available via
+> `GET /historical/markets`.
+
+`GET /events/{event_ticker}`, on `with_nested_markets`:
+
+> **Historical markets settled before the historical cutoff will not be
+> included.**
+
+`GET /historical/cutoff` returns the boundary itself, as
+`market_settled_ts`, `trades_created_ts`, `orders_updated_ts` and
+`market_positions_last_updated_ts`. The Historical Data guide adds:
+
+> The cutoff timestamps will be regularly updated, advancing forward over time.
+
+`GET /historical/markets` accepts `event_ticker`, `series_ticker`, `tickers`,
+`limit`, `cursor` and `mve_filter`, needs no authentication, and states that
+**filters are mutually exclusive** — so supplying two is refused locally rather
+than sent, because a venue that honoured one and ignored the other would return
+a plausible page answering a different question.
+
+**OBSERVED (live, 2026-09-22, 94 stratified events):** the cutoff was
+`2026-07-24T00:00:00Z`. Both paginated paths were exhausted for **94/94**
+events, covering 1,108 distinct markets.
+
+The partition is **not strict**. `KXKNESSET-27` returned two markets from the
+live tier that reported settlement times *before* the cutoff — markets the
+documentation says are "only available via `GET /historical/markets`".
+`KXG7LEADEROUT-45JAN01` showed the same on an earlier run, with all seven
+members returned by both tiers.
+
+So the tiers **overlap** rather than partition, in the safe direction: the live
+tier can still carry an archived market, but nothing observed suggests the
+reverse. Deduplication by ticker is mandatory, and enumeration queries the
+**live tier first and the historical tier second** — if a market crosses the
+boundary mid-enumeration, that order returns it twice (detectable) rather than
+never (invisible).
+
+### A-49 `/historical/markets` returns negative top-of-book sizes — OBSERVED (live, 2026-09-22)
+
+Archived markets carry **negative** `yes_bid_size_fp` and `yes_ask_size_fp`:
+
+```
+"status": "finalized", "result": "no",
+"yes_bid_size_fp": "-19.00", "yes_ask_size_fp": "-389.00",
+"volume_fp": "2561.00", "open_interest_fp": "0.00"
+```
+
+Residual book-state fields on a market that no longer has a book. Never observed
+from the live `/markets` endpoint, including with `status=settled` (200 markets
+sampled, zero negatives).
+
+A negative contract count is not a quantity, so it cannot be parsed as one — and
+it must not be coerced to `0`, because zero is a real, tradeable answer that
+would make an archived market look like a live one with an empty book. The raw
+value is moved to `KalshiMarket.quote_size_anomalies` and the field itself reads
+absent, which is what it truthfully is. The carve-out is scoped to the four
+top-of-book size fields; a negative `volume_fp` or `open_interest_fp` is still
+fatal.
+
+This was not a theoretical concern: before the carve-out, two of 40 sampled
+events could not be enumerated at all, because one bad page failed the whole
+walk and a failed walk is indistinguishable from an empty event.
+
+### A-50 The nested event view returns exactly the live tier — OBSERVED (live, 2026-09-22)
+
+Across 94 stratified events, the market set from
+`GET /events/{E}?with_nested_markets=true` equalled the live-tier set from
+`GET /markets?event_ticker=E` in **94/94** cases, exactly.
+
+| Measure | Count |
+| --- | --- |
+| events sampled (stratified by category and status) | 94 |
+| both paths exhausted | 94 |
+| union members | 1,108 |
+| members the nested view omitted | 307 (27.7%) |
+| events with at least one omission | 43 (46%) |
+| members the nested view had but neither tier did | **0** |
+
+So the nested view's omissions are precisely the archived markets, and reading
+it alone under-reports membership on nearly half of events. This upgrades the
+mechanism behind A-46 from inference to measurement — and A-46's *conclusion*
+is unchanged, because completeness of a market list was never the same question
+as exhaustiveness of outcomes.
+
+### A-51 A provisional market may be removed entirely — DOCUMENTED
+
+`Market.is_provisional`:
+
+> If true, the market may be removed after determination if there is no
+> activity on it.
+
+Membership can therefore **shrink**, not only grow. A removed market is in
+neither the live tier nor the historical tier, so no amount of successful
+enumeration proves that `live + historical` is every market the event ever had.
+
+This is the structural reason the membership object is named
+`CombinedVenueMembershipEvidence` and not a completeness certificate. It records
+which paths were exhausted under which cutoff; it does not claim the result is
+complete.
+
+### A-52 `mutually_exclusive` is an upper bound only — DOCUMENTED
+
+`EventData.mutually_exclusive`:
+
+> If true, only one market in this event can resolve to 'yes'. If false,
+> multiple markets can resolve to 'yes'.
+
+The contrast between the two halves fixes the meaning: the flag bounds the
+**maximum** number of YES resolutions. It says nothing about the minimum, and
+the word is "can", not "must".
+
+`mutually_exclusive = true` is therefore evidence toward `AT_MOST_ONE` and
+**no evidence at all** toward `AT_LEAST_ONE`. An event may be mutually exclusive
+and still settle with every market NO — no candidate qualifying, the event not
+occurring, cancellation, or an outcome Kalshi never listed a market for.
+
+OBSERVED: 29 of 94 sampled events carry `mutually_exclusive = true`, and all 29
+have at least two members.
+
+### A-53 Structured fields that bear on exhaustiveness — DOCUMENTED meanings, OBSERVED values
+
+Documented in the current OpenAPI spec and preserved verbatim:
+
+| Field | Documented meaning | Supports membership? | Mutual exclusion? | Exhaustiveness? |
+| --- | --- | --- | --- | --- |
+| `mutually_exclusive` | "only one market … can resolve to 'yes'" | no | **yes** | **no** (A-52) |
+| `strike_type` | enum `greater`, `greater_or_equal`, `less`, `less_or_equal`, `between`, `functional`, `custom`, `structured` | no | no | **supports a structural argument** |
+| `floor_strike` | "Minimum expiration value that leads to a YES settlement" | no | no | **supports a structural argument** |
+| `cap_strike` | "Maximum expiration value that leads to a YES settlement" | no | no | **supports a structural argument** |
+| `functional_strike` | "Mapping from expiration values to settlement values" | no | no | no — opaque string |
+| `custom_strike` | "Expiration value for each target that leads to a YES settlement" | no | no | no — opaque object |
+| `market_type` | enum `binary`, `scalar` | no | no | no (A-45) |
+| `collateral_return_type` | "how collateral is returned when markets settle" | no | no | no — values not enumerated |
+| `product_metadata` | "Additional metadata for the event" — no schema | no | no | **no** |
+| `primary_participant_key` | undocumented meaning | no | no | no |
+| `is_provisional` | market may be removed | **negatively** (A-51) | no | no |
+
+Only `strike_type` with `floor_strike`/`cap_strike` carries documented,
+machine-readable semantics that can *support* an exhaustiveness argument, by
+showing a set of intervals is gap-free over a domain. It cannot complete one:
+the domain itself, and whether the underlying can be undefined, cancelled or
+void, live in the contract prose. The interval helper therefore reports coverage
+and never issues anything.
+
+`product_metadata` is typed `object` with no schema at all. An undocumented
+field cannot carry a settlement guarantee, so nothing is inferred from its keys.
+
 ## Sources
 
 - https://docs.kalshi.com/
@@ -1352,6 +1505,11 @@ Ordered by how much damage a wrong guess would do.
 - https://docs.kalshi.com/api-reference/market/get-series
 - https://docs.kalshi.com/api-reference/market/get-market-orderbook
 - https://docs.kalshi.com/api-reference/events/get-event
+- https://docs.kalshi.com/api-reference/events/get-events
+- https://docs.kalshi.com/api-reference/historical/get-historical-markets
+- https://docs.kalshi.com/api-reference/historical/get-historical-cutoff-timestamps
+- https://docs.kalshi.com/getting_started/historical_data
+- https://docs.kalshi.com/openapi.yaml — spec version 3.30.0, retrieved 2026-09-22
 - https://docs.kalshi.com/api-reference/exchange/get-series-fee-changes
 - Live production API responses, 2026-09-15 (see inline quotes above)
 - https://kalshi.com/docs/kalshi-fee-schedule.pdf — effective 2026-07-07; still
