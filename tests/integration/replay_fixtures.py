@@ -343,3 +343,129 @@ def basket_stream() -> ObservationStream:
     )
     b.add(ObservationKind.CONNECTION_CLOSED, {"reason": "done"}, offset=40, epoch=1)
     return b.build()
+
+
+# ---------------------------------------------------------------------------
+# AT_LEAST_ONE YES basket: no relation -> relation -> member certs -> proven
+# -> book change -> fee change -> relation evidence drift
+# ---------------------------------------------------------------------------
+
+YES_MEMBERS = ("P", "Q", "R")
+YES_PLAN = DetectorPlan(
+    yes_baskets=(BasketPlan(event_ticker=EVENT, members=YES_MEMBERS),),
+    quantities=(Quantity.from_value("1.00"),),
+    refresh_policy=GENEROUS,
+    balance_precision="direct",
+)
+
+
+def yes_relation_certificate(marker: str = "rel-v1") -> dict[str, Any]:
+    return {
+        "event_ticker": EVENT,
+        "claim": "AT_LEAST_ONE",
+        "certificate_id": "alo-cert-1",
+        "selected_members": list(YES_MEMBERS),
+        "member_settlement_fingerprints": {t: evidence_digest("v1") for t in YES_MEMBERS},
+        "evidence_digest": marker,
+        "status": "VERIFIED",
+        "reviewer": "synthetic reviewer",
+        "evidence": "synthetic AT_LEAST_ONE fixture",
+        "affects_markets": list(YES_MEMBERS),
+    }
+
+
+def yes_basket_stream() -> ObservationStream:
+    """T0 .. T6, the full AT_LEAST_ONE path.
+
+    Buying YES crosses NO bids, so ``yes_ask = notional - no_bid``. With NO bids
+    at 0.7000 each leg costs 0.3000, three legs cost 0.9000, and the guaranteed
+    floor is 1.0000 -- profitable. Drop one leg's NO bid to 0.4000 and that leg
+    costs 0.6000, taking the basket to 1.2000 and above the floor.
+    """
+    b = StreamBuilder()
+    b.add(ObservationKind.CONNECTION_OPENED, {"epoch": 1}, offset=0, epoch=1)
+    for ticker in YES_MEMBERS:
+        b.add(ObservationKind.MARKET_METADATA, metadata(ticker), offset=1)
+        b.add(ObservationKind.FEE_OBSERVATION, fee(ticker), offset=1)
+        b.add(
+            ObservationKind.SETTLEMENT_EVIDENCE,
+            {"market_ticker": ticker, "digest": "v1"},
+            offset=1,
+        )
+    b.add(ObservationKind.METADATA_SNAPSHOT, {"subjects": list(YES_MEMBERS)}, offset=2)
+    b.add(
+        ObservationKind.FEE_KNOWLEDGE_SNAPSHOT,
+        {"subjects": list(YES_MEMBERS), "changes": []},
+        offset=2,
+    )
+    # T0: both registries explicitly empty -- known absence, not a gap.
+    b.add(
+        ObservationKind.SETTLEMENT_REGISTRY_SNAPSHOT,
+        {"subjects": list(YES_MEMBERS), "certificates": []},
+        offset=2,
+    )
+    b.add(
+        ObservationKind.RELATION_REGISTRY_SNAPSHOT,
+        {"subjects": [EVENT], "certificates": [], "affects_markets": list(YES_MEMBERS)},
+        offset=2,
+    )
+    b.add(
+        ObservationKind.RELATION_EVIDENCE,
+        {"event_ticker": EVENT, "digest": "rel-v1", "affects_markets": list(YES_MEMBERS)},
+        offset=2,
+    )
+    b.add(
+        ObservationKind.SUBSCRIBED,
+        {"sid": 1, "channel": "orderbook_delta", "markets": list(YES_MEMBERS)},
+        offset=3,
+        epoch=1,
+    )
+    for index, ticker in enumerate(YES_MEMBERS):
+        b.add(
+            ObservationKind.FRAME_RECEIVED,
+            {"raw": snapshot_frame(ticker, index + 1, "0.2000", "0.7000"), "market_ticker": ticker},
+            offset=4 + index,
+            epoch=1,
+        )
+    # T1: the AT_LEAST_ONE relation certificate arrives; members uncertified.
+    b.add(ObservationKind.RELATION_CERTIFICATE, yes_relation_certificate(), offset=10)
+    # T2: member settlement certificates -> the detector can finally run.
+    for ticker in YES_MEMBERS:
+        b.add(ObservationKind.SETTLEMENT_CERTIFICATE, certificate(ticker), offset=15)
+    # T3: a book refresh keeps the basket proven.
+    b.add(
+        ObservationKind.FRAME_RECEIVED,
+        {"raw": snapshot_frame("P", 4, "0.2000", "0.7000"), "market_ticker": "P"},
+        offset=16,
+        epoch=1,
+    )
+    # T4: one leg's NO bid collapses -> YES gets expensive -> no longer profitable.
+    b.add(
+        ObservationKind.FRAME_RECEIVED,
+        {"raw": snapshot_frame("P", 5, "0.5000", "0.4000"), "market_ticker": "P"},
+        offset=20,
+        epoch=1,
+    )
+    # T5: a fee change lands on an unmapped multiplier -> fee semantics block.
+    b.add(
+        ObservationKind.FEE_OBSERVATION,
+        fee(
+            "P",
+            multiplier="0.5",
+            effective_from=(T0 + timedelta(seconds=25)).isoformat(),
+            provenance="recorded scheduled change",
+        ),
+        offset=30,
+    )
+    # T6: relation evidence drifts -> the certificate no longer applies.
+    b.add(
+        ObservationKind.RELATION_EVIDENCE,
+        {
+            "event_ticker": EVENT,
+            "digest": "rel-v2-drifted",
+            "affects_markets": list(YES_MEMBERS),
+        },
+        offset=40,
+    )
+    b.add(ObservationKind.CONNECTION_CLOSED, {"reason": "done"}, offset=50, epoch=1)
+    return b.build()

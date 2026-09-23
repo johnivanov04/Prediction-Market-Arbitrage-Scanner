@@ -23,6 +23,7 @@ from typing import Any
 from predarb.clock import ensure_utc
 from predarb.detectors.binary_complement import BinaryComplementResult
 from predarb.detectors.no_basket import BasketResult
+from predarb.detectors.yes_basket import YesBasketResult
 from predarb.semantics.fingerprint import canonical_encoding
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "fingerprint_binary_complement",
     "fingerprint_known_absent",
     "fingerprint_missing_knowledge",
+    "fingerprint_yes_basket",
 ]
 
 DECISION_FINGERPRINT_VERSION = "economic-decision/1"
@@ -232,6 +234,49 @@ def fingerprint_basket(
     components.update(_payoff_components("payoff", result.portfolio_payoff))
     components.update(_profit_components("cost", result.profit))
     return _digest("no_basket", components)
+
+
+def fingerprint_yes_basket(
+    result: YesBasketResult, *, decision_time: datetime
+) -> EconomicDecisionFingerprint:
+    """Fingerprint one AT_LEAST_ONE BUY-YES evaluation.
+
+    The payoff proof is fingerprinted by its *theorem and witness*, not by an
+    enumerated state table -- there is no table, and inventing one would record
+    a state space the detector deliberately never built.
+    """
+    proof = result.payoff_proof
+    components: dict[str, Any] = {
+        "decision_time": ensure_utc(decision_time).isoformat(),
+        "event": result.event_ticker,
+        "members": list(result.members),
+        "quantity": result.quantity.to_str(),
+        "classification": result.classification.value,
+        "semantic_status": result.semantic_status.value,
+        "payoff_status": result.payoff_status.value,
+        "cost_status": result.cost_status.value,
+        "execution_status": result.execution_status.value,
+        "relation_claim": result.relation_claim,
+        "relation_certificate": result.relation_certificate_id,
+        "relation_evidence": result.relation_evidence_fingerprint,
+        "member_certificates": dict(sorted(result.member_certificate_ids.items())),
+        "member_evidence": dict(sorted(result.member_evidence_fingerprints.items())),
+        "payoff.theorem": None if proof is None else proof.theorem.value,
+        "payoff.floor": None if proof is None else proof.worst_case_payoff.to_str(),
+        "payoff.ceiling": None if proof is None else proof.best_case_payoff.to_str(),
+        "payoff.witnesses": None if proof is None else list(proof.witnesses),
+        "payoff.permitted_states": None if proof is None else str(proof.permitted_state_count),
+        "payoff.forbidden_state": None if proof is None else proof.forbidden_state,
+        "blocking_reason": result.blocking_reason,
+        "blocking_legs": list(result.blocking_legs),
+        "total_gross_cost": (result.total_gross_cost.to_str() if result.total_gross_cost else None),
+    }
+    for ticker in result.members:
+        components.update(_quote_components(f"leg.{ticker}", result.quotes.get(ticker)))
+        leg_fees = result.fees_by_leg.get(ticker)
+        components[f"leg.{ticker}.fees"] = None if leg_fees is None else leg_fees.describe()
+    components.update(_profit_components("cost", result.profit))
+    return _digest("yes_basket", components)
 
 
 def compare_fingerprints(

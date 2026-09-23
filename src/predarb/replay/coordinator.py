@@ -23,6 +23,7 @@ from predarb.books.reconstruction import OrderBookReconstructor
 from predarb.books.state import BookIntegrity
 from predarb.detectors.binary_complement import evaluate_quantity
 from predarb.detectors.no_basket import BasketMember, evaluate_basket_quantity
+from predarb.detectors.yes_basket import YesBasketMember, evaluate_yes_basket_quantity
 from predarb.domain.money import Quantity
 from predarb.opportunities.triggers import ScanTrigger, ScanTriggerPolicy, TriggerReason
 from predarb.replay.completeness import ReplayDataCompleteness
@@ -33,6 +34,7 @@ from predarb.replay.fingerprint import (
     fingerprint_binary_complement,
     fingerprint_known_absent,
     fingerprint_missing_knowledge,
+    fingerprint_yes_basket,
 )
 from predarb.replay.observation import (
     KnowledgeHorizon,
@@ -40,6 +42,7 @@ from predarb.replay.observation import (
     ObservationKind,
 )
 from predarb.replay.plan import BasketPlan, DetectorPlan
+from predarb.semantics.relation import RelationClaim
 
 __all__ = ["EvaluationCoordinator"]
 
@@ -148,6 +151,13 @@ class EvaluationCoordinator:
                 affected.setdefault(basket.event_ticker, basket)
         for basket in affected.values():
             records.extend(self._basket_decisions(basket, trigger, horizon))
+
+        yes_affected: dict[str, BasketPlan] = {}
+        for ticker in trigger.market_tickers:
+            for basket in self.plan.yes_baskets_containing(ticker):
+                yes_affected.setdefault(basket.event_ticker, basket)
+        for basket in yes_affected.values():
+            records.extend(self._yes_basket_decisions(basket, trigger, horizon))
         return records
 
     def _next_ordinal(self) -> int:
@@ -416,6 +426,118 @@ class EvaluationCoordinator:
                     completeness=self._completeness(horizon, subjects),
                     blocking_reason=result.blocking_reason,
                     fingerprint=fingerprint_basket(result, decision_time=horizon.at),
+                    warnings=result.warnings,
+                )
+            )
+        return records
+
+    def _yes_basket_decisions(
+        self, basket: BasketPlan, trigger: ScanTrigger, horizon: KnowledgeHorizon
+    ) -> list[DecisionRecord]:
+        """AT_LEAST_ONE BUY-YES, driven through the same production detector.
+
+        Resolved for the AT_LEAST_ONE claim specifically: an AT_MOST_ONE
+        certificate over the same members is a different guarantee and must not
+        satisfy this lookup.
+        """
+        context = self.provider.basket_context(basket, horizon, RelationClaim.AT_LEAST_ONE)
+        subjects = basket.members
+        records: list[DecisionRecord] = []
+
+        views = {t: self.reconstructor.book(t) for t in basket.members}
+        absent_books = tuple(sorted(t for t, v in views.items() if v is None))
+
+        for quantity in self.plan.quantities:
+            if absent_books:
+                records.append(
+                    self._blocked_record(
+                        detector=DetectorKind.AT_LEAST_ONE_BASKET,
+                        trigger=trigger,
+                        horizon=horizon,
+                        subjects=subjects,
+                        quantity=quantity,
+                        classification=MISSING_KNOWLEDGE,
+                        reason=f"no book state for {', '.join(absent_books)}",
+                        missing=tuple(f"book:{t}" for t in absent_books),
+                        context_ids=dict(context.context_ids),
+                    )
+                )
+                continue
+            if context.missing:
+                records.append(
+                    self._blocked_record(
+                        detector=DetectorKind.AT_LEAST_ONE_BASKET,
+                        trigger=trigger,
+                        horizon=horizon,
+                        subjects=subjects,
+                        quantity=quantity,
+                        classification=MISSING_KNOWLEDGE,
+                        reason=f"no point-in-time knowledge of {', '.join(context.missing)}",
+                        missing=context.missing,
+                        context_ids=dict(context.context_ids),
+                    )
+                )
+                continue
+            if not context.can_run_detector:
+                records.append(
+                    self._blocked_record(
+                        detector=DetectorKind.AT_LEAST_ONE_BASKET,
+                        trigger=trigger,
+                        horizon=horizon,
+                        subjects=subjects,
+                        quantity=quantity,
+                        classification=context.blocked_classification,
+                        reason=(
+                            "known absent: "
+                            f"{', '.join(context.known_absent) or 'no relation certificate'}"
+                        ),
+                        missing=(),
+                        known_absent=context.known_absent,
+                        context_ids=dict(context.context_ids),
+                    )
+                )
+                continue
+
+            assert context.relation_certificate is not None
+            assert context.fee_quoter is not None
+            members = [
+                YesBasketMember(
+                    instrument=context.members[t].instrument,  # type: ignore[arg-type]
+                    view=views[t],  # type: ignore[arg-type]
+                    certificate=context.members[t].certificate,  # type: ignore[arg-type]
+                    current_settlement_fingerprint=context.members[t].evidence_fingerprint,
+                )
+                for t in basket.members
+            ]
+            first_view = views[basket.members[0]]
+            assert first_view is not None
+            result = evaluate_yes_basket_quantity(
+                relation=context.relation_certificate,
+                relation_evidence_fingerprint=context.relation_fingerprint,
+                members=members,
+                context=ExecutionContext(
+                    current_connection_epoch=first_view.provenance.connection_epoch,
+                    journal_healthy=self.reconstructor.journal_healthy,
+                ),
+                fee_quoter=context.fee_quoter,
+                quantity=quantity,
+                at=horizon.at,
+            )
+            records.append(
+                DecisionRecord(
+                    detector=DetectorKind.AT_LEAST_ONE_BASKET,
+                    trigger_ordinal=trigger.trigger_ordinal,
+                    trigger_reason=trigger.reason.value,
+                    decision_ordinal=self._next_ordinal(),
+                    decision_time=horizon.at,
+                    subjects=subjects,
+                    detector_did_run=True,
+                    classification=result.classification.value,
+                    quantity=quantity.to_str(),
+                    context_ids=dict(context.context_ids),
+                    completeness=self._completeness(horizon, subjects),
+                    blocking_reason=result.blocking_reason,
+                    fingerprint=fingerprint_yes_basket(result, decision_time=horizon.at),
                     warnings=result.warnings,
                 )
             )

@@ -41,12 +41,14 @@ MISSING_KNOWLEDGE = "MISSING_POINT_IN_TIME_KNOWLEDGE"
 class DetectorKind(StrEnum):
     BINARY_COMPLEMENT = "BINARY_COMPLEMENT"
     AT_MOST_ONE_BASKET = "AT_MOST_ONE_BASKET"
+    AT_LEAST_ONE_BASKET = "AT_LEAST_ONE_BASKET"
 
     @property
     def required_dimensions(self) -> tuple[CompletenessDimension, ...]:
         return {
             DetectorKind.BINARY_COMPLEMENT: BINARY_COMPLEMENT_DIMENSIONS,
             DetectorKind.AT_MOST_ONE_BASKET: BASKET_DIMENSIONS,
+            DetectorKind.AT_LEAST_ONE_BASKET: BASKET_DIMENSIONS,
         }[self]
 
 

@@ -29,7 +29,7 @@ from predarb.replay.observation import KnowledgeHorizon
 from predarb.replay.plan import BasketPlan, DetectorPlan
 from predarb.semantics.certificate import SettlementCertificate
 from predarb.semantics.fingerprint import SettlementEvidenceFingerprint
-from predarb.semantics.relation import RelationCertificate
+from predarb.semantics.relation import RelationCertificate, RelationClaim
 
 __all__ = [
     "BasketContext",
@@ -84,6 +84,10 @@ class BasketContext:
     """Everything the AT_MOST_ONE basket detector needs, or why it is absent."""
 
     plan: BasketPlan
+    claim: RelationClaim = RelationClaim.AT_MOST_ONE
+    """Which relation this context was resolved for. Carried so a caller cannot
+    hand an AT_MOST_ONE context to a detector that needs AT_LEAST_ONE."""
+
     relation_certificate: RelationCertificate | None = None
     relation_fingerprint: SettlementEvidenceFingerprint | None = None
     members: Mapping[str, BinaryContext] = field(default_factory=dict)
@@ -121,8 +125,13 @@ class ContextProvider(Protocol):
         """Context for one market's complement evaluation."""
         ...
 
-    def basket_context(self, plan: BasketPlan, horizon: KnowledgeHorizon) -> BasketContext:
-        """Context for one AT_MOST_ONE group."""
+    def basket_context(
+        self,
+        plan: BasketPlan,
+        horizon: KnowledgeHorizon,
+        claim: RelationClaim = RelationClaim.AT_MOST_ONE,
+    ) -> BasketContext:
+        """Context for one relation group, resolved for exactly this claim."""
         ...
 
     def completeness(

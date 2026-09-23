@@ -964,8 +964,9 @@ class RelationCertificate:
         )
         if len(self.selected_members) < MIN_BASKET_MEMBERS:
             raise ValueError(
-                f"{self.event_ticker}: AT_MOST_ONE over "
-                f"{len(self.selected_members)} member(s) asserts nothing"
+                f"{self.event_ticker}: {self.claim.value} over "
+                f"{len(self.selected_members)} member(s) asserts nothing useful; "
+                f"at least {MIN_BASKET_MEMBERS} are needed"
             )
         if self.status is RelationStatus.VERIFIED and not self.evidence.strip():
             raise ValueError(

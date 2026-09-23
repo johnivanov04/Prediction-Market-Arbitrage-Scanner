@@ -193,9 +193,15 @@ class KalshiReplayContext:
         return None, (), (f"no settlement certificate for {ticker}",)
 
     def _relation_certificate(
-        self, plan: BasketPlan, horizon: KnowledgeHorizon
+        self, plan: BasketPlan, horizon: KnowledgeHorizon, claim: RelationClaim
     ) -> tuple[RelationCertificate | None, tuple[str, ...], tuple[str, ...]]:
-        record = self.knowledge.relation_certificate_at(plan.event_ticker, horizon)
+        # The plan's exact member set is part of the lookup, not checked after.
+        # A certificate over a different set for the same event and claim must
+        # not be returned here; ``covers()`` would then reject it and the basket
+        # would block despite a valid certificate existing.
+        record = self.knowledge.relation_certificate_at(
+            plan.event_ticker, horizon, claim=claim.value, members=plan.members
+        )
         if record is not None:
             return (
                 RelationCertificate(
@@ -238,7 +244,13 @@ class KalshiReplayContext:
         snapshot = self.knowledge.relation_snapshot_at(plan.event_ticker, horizon)
         if snapshot is None:
             return None, (f"relation_registry:{plan.event_ticker}",), ()
-        return None, (), (f"no relation certificate for {plan.event_ticker}",)
+        others = self.knowledge.relation_certificates_for_event(plan.event_ticker, horizon)
+        detail = f"no {claim.value} certificate for {plan.event_ticker} over {list(plan.members)}"
+        if others:
+            # Say so explicitly. "No certificate" when one exists over a
+            # different set is true but easy to misread as "none at all".
+            detail += f"; certificates exist for other identities: {list(others)}"
+        return None, (), (detail,)
 
     # -- ContextProvider ---------------------------------------------------
 
@@ -294,8 +306,13 @@ class KalshiReplayContext:
             known_absent=tuple(known_absent),
         )
 
-    def basket_context(self, plan: BasketPlan, horizon: KnowledgeHorizon) -> BasketContext:
-        relation, missing, known_absent = self._relation_certificate(plan, horizon)
+    def basket_context(
+        self,
+        plan: BasketPlan,
+        horizon: KnowledgeHorizon,
+        claim: RelationClaim = RelationClaim.AT_MOST_ONE,
+    ) -> BasketContext:
+        relation, missing, known_absent = self._relation_certificate(plan, horizon, claim)
         members = {t: self.binary_context(t, horizon) for t in plan.members}
         for ticker, member in members.items():
             missing = (*missing, *member.missing)
@@ -310,6 +327,7 @@ class KalshiReplayContext:
         first = members.get(plan.members[0]) if plan.members else None
         return BasketContext(
             plan=plan,
+            claim=claim,
             relation_certificate=relation,
             relation_fingerprint=relation_fingerprint,
             members=members,

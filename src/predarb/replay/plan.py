@@ -95,6 +95,16 @@ class DetectorPlan:
 
     binary_complement_markets: tuple[str, ...] = ()
     baskets: tuple[BasketPlan, ...] = ()
+    """AT_MOST_ONE groups, evaluated as NO baskets."""
+
+    yes_baskets: tuple[BasketPlan, ...] = ()
+    """AT_LEAST_ONE groups, evaluated as YES baskets.
+
+    Separate from ``baskets`` rather than tagged, because the two claims need
+    different certificates and produce different economics. One list with a flag
+    would make "which claim does this group need" a runtime question on every
+    lookup."""
+
     quantities: tuple[Quantity, ...] = field(default_factory=lambda: (Quantity.from_value("1.00"),))
     refresh_policy: ContextRefreshPolicy = DEFAULT_REFRESH_POLICY
     balance_precision: str = "unknown-conservative"
@@ -111,16 +121,24 @@ class DetectorPlan:
 
     @property
     def monitored_markets(self) -> tuple[str, ...]:
-        members = {m for basket in self.baskets for m in basket.members}
+        members = {m for basket in (*self.baskets, *self.yes_baskets) for m in basket.members}
         return tuple(sorted(set(self.binary_complement_markets) | members))
+
+    @property
+    def all_baskets(self) -> tuple[BasketPlan, ...]:
+        return (*self.baskets, *self.yes_baskets)
 
     def baskets_containing(self, ticker: str) -> tuple[BasketPlan, ...]:
         return tuple(basket for basket in self.baskets if ticker in basket.members)
+
+    def yes_baskets_containing(self, ticker: str) -> tuple[BasketPlan, ...]:
+        return tuple(basket for basket in self.yes_baskets if ticker in basket.members)
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "binary_complement_markets": list(self.binary_complement_markets),
             "baskets": [basket.to_payload() for basket in self.baskets],
+            "yes_baskets": [basket.to_payload() for basket in self.yes_baskets],
             "quantities": [q.to_str() for q in self.quantities],
             "refresh_policy": self.refresh_policy.to_payload(),
             "balance_precision": self.balance_precision,
@@ -135,6 +153,10 @@ class DetectorPlan:
                 BasketPlan(event_ticker=entry["event_ticker"], members=tuple(entry["members"]))
                 for entry in payload.get("baskets", [])
             ),
+            yes_baskets=tuple(
+                BasketPlan(event_ticker=entry["event_ticker"], members=tuple(entry["members"]))
+                for entry in payload.get("yes_baskets", [])
+            ),
             quantities=tuple(Quantity.from_value(q) for q in payload.get("quantities", ["1.00"])),
             refresh_policy=(
                 ContextRefreshPolicy.from_payload(payload["refresh_policy"])
@@ -148,7 +170,8 @@ class DetectorPlan:
     def describe(self) -> str:
         return (
             f"{len(self.binary_complement_markets)} complement market(s), "
-            f"{len(self.baskets)} basket(s), "
+            f"{len(self.baskets)} NO basket(s), "
+            f"{len(self.yes_baskets)} YES basket(s), "
             f"quantities {[q.to_str() for q in self.quantities]}, "
             f"precision {self.balance_precision}"
         )

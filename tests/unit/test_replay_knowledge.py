@@ -290,12 +290,14 @@ class TestCertificateLookahead:
                         ObservationKind.RELATION_CERTIFICATE,
                         event_ticker="EVT",
                         certificate_id="rel-1",
+                        selected_members=["A", "B", "C"],
                     )
                 ]
             )
         )
-        assert base.relation_certificate_at("EVT", horizon(0, THU)) is not None
-        assert base.relation_certificate_at("EVT", horizon(-1, MON)) is None
+        members = ["A", "B", "C"]
+        assert base.relation_certificate_at("EVT", horizon(0, THU), members=members) is not None
+        assert base.relation_certificate_at("EVT", horizon(-1, MON), members=members) is None
 
 
 class TestMetadataLookahead:

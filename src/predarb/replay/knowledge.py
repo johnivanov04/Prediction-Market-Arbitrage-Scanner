@@ -44,6 +44,7 @@ __all__ = [
     "KnowledgeBase",
     "ReplayMode",
     "ResolvedContext",
+    "relation_identity",
 ]
 
 
@@ -86,6 +87,48 @@ class ResolvedContext:
             f"{len(self.relation_certificates)} relation certs"
             + (f", missing: {', '.join(self.missing)}" if self.missing else "")
         )
+
+
+def relation_identity(event_ticker: str, claim: str, members: Sequence[str]) -> str:
+    """``event|CLAIM|A,B,C`` -- the full identity of a relation certificate.
+
+    All three parts are load-bearing.
+
+    **Event** scopes it. **Claim** separates AT_MOST_ONE from AT_LEAST_ONE,
+    which forbid opposite terminal states. **Member set** is what the reviewer
+    actually answered questions about: a certificate reviewed over
+    ``{A, B, C}`` is not a certificate about ``{A, B, C, D}``, and both may
+    legitimately exist for one event at the same time.
+
+    Keying on ``event|claim`` alone would let the second shadow the first, so a
+    lookup for the reviewed set would return a different set's certificate --
+    and the detector would then block a valid basket because the certificate it
+    was handed covers something else. Fail-closed, but wrong.
+
+    Members are canonicalised, so the same set supplied in any order resolves
+    identically. Duplicates are collapsed rather than raising: an index must not
+    lose a whole stream because one payload repeated a ticker.
+    """
+    canonical = ",".join(sorted({str(m) for m in members}))
+    return f"{event_ticker}|{claim}|{canonical}"
+
+
+def _relation_key(payload: Mapping[str, Any]) -> str:
+    """The identity of one recorded relation certificate.
+
+    A payload without a ``claim`` predates Step 11's second claim and is
+    therefore AT_MOST_ONE. A payload without ``selected_members`` keys to the
+    empty set, which no real lookup matches -- fail-closed, and visible as an
+    unresolvable certificate rather than as a wrong one.
+    """
+    event = str(payload.get("event_ticker", ""))
+    if not event:
+        return ""
+    return relation_identity(
+        event,
+        str(payload.get("claim", "AT_MOST_ONE")),
+        payload.get("selected_members") or (),
+    )
 
 
 @dataclass
@@ -142,9 +185,13 @@ class KnowledgeBase:
                 ("market_ticker",),
             ),
             ObservationKind.RELATION_EVIDENCE: (self.relation_evidence, ("event_ticker",)),
+            # Keyed by event *and claim*: one event can carry both an
+            # AT_MOST_ONE and an AT_LEAST_ONE certificate, and they forbid
+            # opposite states. A shared key would let a lookup for one return
+            # the other.
             ObservationKind.RELATION_CERTIFICATE: (
                 self.relation_certificates,
-                ("event_ticker",),
+                ("__relation_key__",),
             ),
         }
         self.observation_counts.append((observation.ordinal, observation.kind.value))
@@ -157,9 +204,13 @@ class KnowledgeBase:
         if entry is None:
             return
         store, key_fields = entry
-        key = next(
-            (str(observation.payload[f]) for f in key_fields if observation.payload.get(f)), ""
-        )
+        if key_fields == ("__relation_key__",):
+            key = _relation_key(observation.payload)
+        else:
+            key = next(
+                (str(observation.payload[f]) for f in key_fields if observation.payload.get(f)),
+                "",
+            )
         if not key:
             return
         effective_from = observation.payload.get("effective_from")
@@ -307,10 +358,47 @@ class KnowledgeBase:
         return None if version is None else dict(version.value)
 
     def relation_certificate_at(
-        self, event_ticker: str, horizon: KnowledgeHorizon
+        self,
+        event_ticker: str,
+        horizon: KnowledgeHorizon,
+        claim: str = "AT_MOST_ONE",
+        members: Sequence[str] = (),
     ) -> dict[str, Any] | None:
-        version = self._resolve(self.relation_certificates, event_ticker, horizon)
+        """The certificate for this event, claim **and exact member set**.
+
+        Every part of the identity is in the key, not applied as a filter
+        afterwards, and there is deliberately no fallback to a superset or
+        subset. A certificate reviewed over ``{A, B, C}`` answers only about
+        ``{A, B, C}``; returning it for ``{A, B}`` would broaden a human's
+        answer to a question they were never asked.
+
+        Point-in-time *within* that identity: several historical versions of the
+        same set resolve to whichever was known at the horizon.
+        """
+        version = self._resolve(
+            self.relation_certificates,
+            relation_identity(event_ticker, claim, members),
+            horizon,
+        )
         return None if version is None else dict(version.value)
+
+    def relation_certificates_for_event(
+        self, event_ticker: str, horizon: KnowledgeHorizon
+    ) -> tuple[str, ...]:
+        """Every relation identity known for this event, for reporting.
+
+        Exposed so a report can say that a certificate exists over a *different*
+        member set -- useful to a reader, and never mistaken by the resolver for
+        a match.
+        """
+        prefix = f"{event_ticker}|"
+        return tuple(
+            sorted(
+                key
+                for key, history in self.relation_certificates.items()
+                if key.startswith(prefix) and history.resolve(horizon) is not None
+            )
+        )
 
     def settlement_evidence_at(
         self, ticker: str, horizon: KnowledgeHorizon
