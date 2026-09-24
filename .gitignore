@@ -70,3 +70,7 @@ membership_research.json
 exhaustiveness_research.json
 mutually_exclusive_study.json
 yes_basket_scan.json
+soak_report.json
+review_queue.json
+security_scan.json
+data/catalogue/

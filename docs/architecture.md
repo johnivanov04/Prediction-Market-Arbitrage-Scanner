@@ -81,7 +81,7 @@ Kalshi REST ──┐
               ├──▶ ingest ──▶ raw_journal (append-only Parquet)
 Kalshi WS ────┘                    │
                                    ├──▶ books/reconstruction ──▶ BookState
-                                   └──▶ storage (Postgres catalogue)
+                                   └──▶ storage (catalogue)
 ```
 
 The raw journal is written **before or alongside** normalisation, never after.
@@ -133,7 +133,7 @@ updates be visible.
 | `semantics/*` | Propositions, settlement specs, relations, registry | Planned |
 | `detectors/*` | `binary_complement`, `group_basket` | Planned |
 | `opportunities/*` | Opportunity record, persistence, audit rendering | Planned |
-| `storage/*` | SQLAlchemy models, repositories, Parquet writers | Planned |
+| `storage/*` | SQLAlchemy Core schema, migrations, repositories, verification | ✅ |
 | `replay/engine` | Point-in-time replay | Planned |
 | `cli/main` | Typer commands | Planned |
 
@@ -229,9 +229,22 @@ Historical source messages are never mutated. Corrections are new records.
 This is what makes an opportunity auditable years later: the claim can be
 recomputed from the bytes that produced it.
 
-High-volume book data goes to partitioned Parquet (read back with Polars and
-DuckDB); the structured catalogue goes to Postgres. Splitting by access pattern
-rather than by service keeps the operational surface small.
+High-volume book data goes to the append-only journal; the structured catalogue
+is a separate store. Splitting by access pattern rather than by service keeps
+the operational surface small.
+
+**Phase-1 backend: local SQLite with WAL**, via SQLAlchemy Core. The original
+plan named Postgres, and the code still runs on it — nothing in `storage/` uses
+a SQLite-only construct and the backend is one URL away. The deviation is
+operational: a research soak is a single process that must survive for hours
+unattended, and requiring a database daemon alive beside it adds a failure mode
+that has nothing to do with the research. Phase 2, with concurrent writers,
+is where Postgres starts paying for itself.
+
+Storage remains a **leaf**. `storage/verification.py` needs a venue-specific
+context resolver to replay a session, and takes it as an injected factory rather
+than importing `venues/` — which also keeps verification venue-agnostic for
+Phase 2. See `docs/storage.md`.
 
 ### 5.6 Monotonic clock for staleness
 
@@ -273,13 +286,15 @@ correctness infrastructure exists before anything that could produce a claim.
 5. ✅ **Book reconstruction** — snapshot/delta, sequence integrity, fail-closed
 6. ✅ **Execution-depth engine** — derived asks, VWAP, breakpoints, multi-leg
    gross cost. Deliberately no profitability: that needs fees and payoff.
-7. **Fee engine** — versioned schedules; *blocked on A-14*
-8. **Settlement specs + relations registry** — with the verification workflow
-9. **Payoff engine** — state enumeration, worst-case
-10. **Detectors** — binary complement, then baskets
-11. **Opportunity record + audit CLI**
-12. **Replay engine + lookahead tests**
-13. **Live capture, then the research questions**
+7. ✅ **Fee engine** — versioned schedules; bounded where A-14 leaves the
+   multiplier column mapping unknown
+8. ✅ **Settlement specs + relations registry** — with the verification workflow
+9. ✅ **Payoff engine** — state enumeration, worst-case
+10. ✅ **Detectors** — binary complement, AT_MOST_ONE NO basket, AT_LEAST_ONE
+    YES basket
+11. ✅ **Opportunity record + audit CLI**
+12. ✅ **Replay engine + lookahead tests**
+13. ✅ **Live capture, durable storage, soak** — see `docs/phase1_report.md`
 
 Steps 2–6 are the ones that determine whether any later number is trustworthy,
 which is why the fee engine — the most visible piece — is deliberately seventh.
