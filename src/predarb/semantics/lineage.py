@@ -88,10 +88,22 @@ class SourceVersion:
     source_name: str
     version: str
     effective_date: date
-    document_sha256: str
+    document_sha256: str | None
+    """``None`` when the version is *identified but not readable*.
+
+    A current version can be on the public record by name and effective date
+    while its text is filed confidentially. Recording no hash is how that state
+    is told apart from a version we actually read -- inventing one, or omitting
+    the version entirely, would both misrepresent what is known."""
+
     url: str
     filed_date: date | None = None
     note: str | None = None
+
+    @property
+    def is_read(self) -> bool:
+        """Whether this version's text was obtained and hashed."""
+        return self.document_sha256 is not None
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -105,10 +117,8 @@ class SourceVersion:
         }
 
     def describe(self) -> str:
-        return (
-            f"v{self.version} effective {self.effective_date.isoformat()} "
-            f"{self.document_sha256[:12]}"
-        )
+        identity = self.document_sha256[:12] if self.document_sha256 else "TEXT-NOT-READ"
+        return f"v{self.version} effective {self.effective_date.isoformat()} {identity}"
 
 
 @dataclass(frozen=True, slots=True)
