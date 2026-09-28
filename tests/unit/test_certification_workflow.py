@@ -16,6 +16,7 @@ from predarb.cli.semantics import _bundle_from_snapshot, _fingerprint
 from predarb.domain.money import Price
 from predarb.semantics import registry as registry_module
 from predarb.semantics.certificate import CertificateStatus
+from predarb.semantics.dependency import DependencyClosure, DependencySet
 from predarb.semantics.evidence import (
     DocumentRetrieval,
     ExternalDocument,
@@ -60,8 +61,44 @@ MARKET = {
 }
 
 
+def dependency_sets(
+    documents: dict[str, ExternalDocument], fields: dict[str, object]
+) -> dict[str, DependencySet]:
+    """Closures for a fixture bundle, with nothing incorporated.
+
+    Unreadable documents get a stand-in reviewer declaration, because otherwise
+    every ``readable=False`` fixture would be incomplete for the *closure*
+    reason and could never reach the manual-viewing rule those tests exist to
+    exercise. Tests that care about an unknown closure build it explicitly.
+    """
+    sets: dict[str, DependencySet] = {}
+    for name, document in documents.items():
+        derived = DependencySet.for_document(name, document)
+        sets[name] = (
+            DependencySet(
+                parent=name,
+                closure=DependencyClosure.ENUMERATED,
+                note="reviewer declared: incorporates nothing",
+                scanner_version="test-declaration/1",
+            )
+            if derived.closure is DependencyClosure.UNKNOWN
+            else derived
+        )
+    for key in ("rules_primary", "rules_secondary"):
+        if fields.get(key):
+            sets[f"market.{key}"] = DependencySet(
+                parent=f"market.{key}",
+                closure=DependencyClosure.ENUMERATED,
+                scanner_version="test-scan/1",
+            )
+    return sets
+
+
 def bundle(
-    *, market: dict[str, object] | None = None, readable: bool = True
+    *,
+    market: dict[str, object] | None = None,
+    readable: bool = True,
+    dependencies: dict[str, DependencySet] | None = None,
 ) -> SettlementEvidenceBundle:
     fields = {**MARKET, **(market or {})}
     documents = {
@@ -75,6 +112,7 @@ def bundle(
             text="terms" if readable else None,
         )
     }
+    closures = dependencies if dependencies is not None else dependency_sets(documents, fields)
     provisional = SettlementEvidenceBundle(
         snapshot_id="pending",
         market_ticker="MKT",
@@ -86,6 +124,7 @@ def bundle(
         event_fields={"captured": True},
         series_fields={"captured": True},
         documents=documents,
+        dependencies=closures,
     )
     return SettlementEvidenceBundle(
         snapshot_id=snapshot_id_for(
@@ -100,6 +139,7 @@ def bundle(
         event_fields={"captured": True},
         series_fields={"captured": True},
         documents=documents,
+        dependencies=closures,
     )
 
 
@@ -635,6 +675,7 @@ class TestAcknowledgementBindsToContentHash:
                 text=None,
             )
         }
+        closures = dependency_sets(documents, dict(MARKET))
         provisional = SettlementEvidenceBundle(
             snapshot_id="pending",
             market_ticker="MKT",
@@ -646,6 +687,7 @@ class TestAcknowledgementBindsToContentHash:
             event_fields={"captured": True},
             series_fields={"captured": True},
             documents=documents,
+            dependencies=closures,
         )
         return SettlementEvidenceBundle(
             snapshot_id=snapshot_id_for(
@@ -660,6 +702,7 @@ class TestAcknowledgementBindsToContentHash:
             event_fields={"captured": True},
             series_fields={"captured": True},
             documents=documents,
+            dependencies=closures,
         )
 
     def test_no_acknowledgement_blocks(self):

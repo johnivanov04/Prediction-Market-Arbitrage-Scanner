@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 
+from predarb.semantics.dependency import DependencyClosure, DependencySet
 from predarb.semantics.evidence import (
     DocumentRetrieval,
     EvidenceCompleteness,
@@ -64,14 +65,48 @@ def document(**overrides: object) -> ExternalDocument:
     return ExternalDocument.from_bytes(**base)  # type: ignore[arg-type]
 
 
+def dependency_sets(
+    documents: dict[str, ExternalDocument], fields: dict[str, object]
+) -> dict[str, DependencySet]:
+    """Closures for a fixture bundle, with nothing incorporated.
+
+    Unreadable documents get a stand-in reviewer declaration so these fixtures
+    keep testing what they were written to test. The closure rule has tests of
+    its own in :class:`TestIncorporatedDocuments`.
+    """
+    sets: dict[str, DependencySet] = {}
+    for name, doc in documents.items():
+        derived = DependencySet.for_document(name, doc)
+        sets[name] = (
+            DependencySet(
+                parent=name,
+                closure=DependencyClosure.ENUMERATED,
+                note="reviewer declared: incorporates nothing",
+                scanner_version="test-declaration/1",
+            )
+            if derived.closure is DependencyClosure.UNKNOWN
+            else derived
+        )
+    for key in ("rules_primary", "rules_secondary"):
+        if fields.get(key):
+            sets[f"market.{key}"] = DependencySet(
+                parent=f"market.{key}",
+                closure=DependencyClosure.ENUMERATED,
+                scanner_version="test-scan/1",
+            )
+    return sets
+
+
 def bundle(
     *,
     market: dict[str, object] | None = None,
     documents: dict[str, ExternalDocument] | None = None,
     captured_at: datetime = T0,
+    dependencies: dict[str, DependencySet] | None = None,
 ) -> SettlementEvidenceBundle:
     fields = {**MARKET, **(market or {})}
     docs = documents if documents is not None else {"contract_terms": document()}
+    closures = dependencies if dependencies is not None else dependency_sets(docs, fields)
     provisional = SettlementEvidenceBundle(
         snapshot_id="pending",
         market_ticker="MKT",
@@ -83,6 +118,7 @@ def bundle(
         event_fields=dict(EVENT),
         series_fields=dict(SERIES),
         documents=docs,
+        dependencies=closures,
     )
     return SettlementEvidenceBundle(
         snapshot_id=snapshot_id_for(
@@ -99,6 +135,7 @@ def bundle(
         event_fields=dict(EVENT),
         series_fields=dict(SERIES),
         documents=docs,
+        dependencies=closures,
     )
 
 

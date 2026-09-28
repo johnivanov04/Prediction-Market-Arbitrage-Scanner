@@ -330,24 +330,170 @@ Cancellation, void, DNP, tie and discretion clauses are surfaced verbatim rather
 than scored.
 
 Screened 20 market(s): 12 eligible, 8 screened out
-on structural grounds. 4 review request(s) opened, all
-`AWAITING_REVIEW` with **COMPLETE** evidence:
-
-| Market | Request | Evidence | Clauses flagged for reading |
-| --- | --- | --- | --- |
-| `KXBTC15M-26SEP231645-45` | `54f59f39b008` | COMPLETE | none |
-| `KXTIME-26-ZOH` | `07964b122b49` | COMPLETE | none |
-| `KXBOND-30-CAL` | `cd64ad0dba4a` | COMPLETE | none |
-| `KXFEDERALCHARGE-27JAN01-AFAU` | `eb2e1dfa62f9` | COMPLETE | none |
-
-Every request has both governing documents retrieved but **requiring manual
-reading at source** — the Step-8 hash-bound acknowledgement, so approving
-version A cannot satisfy version B. The flagged clauses are surfaced for a
-reader, not scored.
+on structural grounds. 4 review request(s) opened. **All four were recorded
+`COMPLETE` and all four were wrong** — see §22a.
 
 Claude did not and will not approve these. Issuance requires an APPROVED review
 recorded against an exact evidence fingerprint, with a hash-bound acknowledgement
 that each governing document was read at source.
+
+## 22a. Acceptance blocker: incorporation by reference
+
+Human review of the first two requests found the defect. Both contract-terms
+documents incorporate general Exchange Rulebook provisions, quoted verbatim from
+`https://assets.kalshi.com/contract_terms/BOND.pdf` (sha256 `24ee686e7da34b4b…`):
+
+> Contingencies: Before Settlement, Kalshi may, at its sole discretion, initiate
+> the Market Outcome Review Process pursuant to Rule 6.3(d) of the Rulebook. If
+> an Expiration Value cannot be determined on the Expiration Date, Kalshi has
+> the right to determine payouts pursuant to Rule 6.3(b) in the Rulebook.
+
+The second sentence hands payout determination for a whole class of terminal
+states to a document Step 8 never fetched. The evidence policy treated a
+governing document as a *leaf* — fetched means captured — when it is a *node*.
+
+**Extent.** All 6 stored evidence snapshots (5 distinct markets, 10 required
+governing documents) were retrieved but unreadable, so their incorporation
+closure was never established. Re-fetched and read locally, **9 of the 10
+incorporate at least one provision capable of changing a payout**. Every one of
+the 6 stored review requests was recorded `COMPLETE`; under the corrected policy
+all 6 are `EVIDENCE_INCOMPLETE`. Every stored fingerprint still reproduces
+exactly, so no captured evidence was invalidated — only its verdict was.
+
+**The correction.** `GoverningDocumentDependency` models one
+incorporation-by-reference: parent component, citation as written, referenced
+source, materiality with its payout impacts, retrieval status, source hash,
+version label and binding, the citing sentence, and nested dependencies.
+`DependencySet` adds the part that actually closes the hole — the *closure*,
+which says whether the list of references is known to be complete. Completeness
+now runs over the closure rather than the document set:
+
+- an unreadable parent has an **UNKNOWN** closure, never an empty one, and
+  blocks. A bundle captured before incorporation was modelled records nothing,
+  and that silence reads as unknown too — which is why all 6 old snapshots
+  correctly flip to incomplete;
+- an incorporated reference that can reach a payout, whose source is not held,
+  is missing required evidence;
+- a reference a human classified `PROCEDURAL` with a recorded rationale does not
+  block. Unclassified ones do — nobody looked is not somebody cleared it;
+- the scanner may raise concern and may never lower it. Nothing automated can
+  emit `PROCEDURAL`.
+
+Nothing in the model names Kalshi or Rule 6.3. The venue layer supplies the
+citation grammar; the claim declares which payout impacts it cannot tolerate
+being unread.
+
+**Extraction.** pypdf 6.19.0 now reads the PDFs, so the scanner finds these
+citations itself rather than waiting for a human. Raw bytes stay authoritative;
+extracted text is derived and carries parser name and version, source hash,
+extracted-text hash, page count, zero-text pages and warnings. That provenance
+is deliberately not fingerprinted — a parser upgrade must not make an unchanged
+contract look amended (A-58). Across the 12-document corpus: 11 CLEAN, 1 FAILED
+(`KXTIME-26-ZOH` certification, a scan with no text layer), 1 requiring manual
+review. On BOND and CRIMECHARGE pypdf finds 6.3(b), 6.3(d), 7.1 and 7.2 — the
+same set an independent `pdftotext` pass found, with no misses.
+
+Where extraction fails, a reviewer who opens the PDF at source records a
+`DependencyDeclaration` bound to that document's exact content hash; an amended
+document has a different hash and therefore no declaration, because nobody has
+read the new version.
+
+**Staleness.** An incorporated source's hash and version label are part of the
+evidence fingerprint, so a Rulebook amendment is drift on every certificate that
+relied on it, named down to the rule. Replay resolves each certificate against
+the evidence recorded at its own issuance, so today's Rulebook is never applied
+retroactively to a certificate issued against an earlier one.
+
+**Two separate questions.**
+
+*Which edition of the Rulebook binds?* **Documented: as amended from time to
+time.** The Member Agreement binds a Member to "the Kalshi rules (as
+supplemented or amended from time to time, the 'Kalshi Rulebook')". It is
+captured as a node in the dependency graph, not summarised in a comment, so a
+change to that language is itself drift (A-57A).
+
+*What does a written citation point at?* A separate question, answered per
+citation and per product — and the two markets reviewed answer it
+**differently**.
+
+**BOND: reference resolved.** Certified 2025-01-17 under Rulebook v1.14, where
+Rule 6.3(b) *was* the indeterminate-outcome payout provision and 6.3(d) *was*
+Market Outcome Review. Both citations were exact when written. Each has since
+moved twice, and every hop is carried by an amendment we hold:
+
+```
+Rule 6.3(b) --[scalar amendment rules02172515652, eff 2025-03-03]--> Rule 6.3(c)
+            --[settlement amendment rules03022640155, eff 2026-03-17]--> unchanged
+Rule 6.3(d) --[scalar amendment]--> Rule 6.3(e) --[settlement amendment]--> Rule 6.3(f)
+```
+
+**CRIMECHARGE: reference broken at issuance.** Certified 2025-07-24, nearly five
+months *after* the scalar amendment took effect. On that day 6.3(b) was already
+the Scalar Contract rule and 6.3(d) was already Settlement Date mechanics. The
+citations were wrong when written, and CRIMECHARGE does not inherit BOND's
+pre-amendment lineage — a citation that was wrong on the day it was written does
+not acquire a valid historical target because an older template once used that
+number.
+
+The model keeps the two axes apart. `VersionBinding` answers which edition
+governs; `ReferenceResolution` answers what a number points at, and its
+`BROKEN_REFERENCE_AT_ISSUANCE` member exists precisely so CRIMECHARGE cannot be
+quietly filed alongside BOND. A `ReferenceLineage` resolves a citation only when
+every hop names an amendment with its hash and effective date, the chain is
+continuous, and the amendment record covers the whole window from issuance to
+today; a single unaccounted amendment returns it to UNKNOWN.
+
+**Payoff invariant: `COMPLEMENT_NOT_PROVEN` for BOND, `APPLICABLE_RULE_UNRESOLVED`
+for CRIMECHARGE.** These are different failures and the distinction matters.
+BOND's governing rule is now identified — and reading it does not establish the
+invariant. Rule 6.3(c) methodology (a) is explicitly complementary (last traded
+price, $0.10/$0.90). Methodology (b) hands the outcome to a committee making "a
+binding determination of fair allocation", with no stated constraint that the
+allocation sums to the Settlement Value. Rule 6.3(e) — reachable for BOND, whose
+primary subject is a natural person — settles "at the last traded price prior to
+the death" without saying what the short side receives; Kalshi's own filing
+describes it as "a scalar payout". No conservation invariant exists anywhere in
+the Rulebook: "Settlement Value" is defined as what *a holder* may receive, and
+the settlement mechanics say "no less than", on the in-the-money side only
+(A-59). CRIMECHARGE never reaches this question.
+
+**Automatic resolution, without weakening fail-closed.** A whole-rule citation
+resolves from objective evidence: if the rule number carries the same heading in
+the version in force when the document was written and in the current one, and
+no recorded amendment renumbered it, it is `EXACT_CURRENT_REFERENCE`. Nobody
+should declare by hand that Rule 7.1 means Rule 7.1. The check has teeth —
+twenty-one rule numbers changed meaning between v1.14 and v1.29, so BOND's
+citations to Rule 3.6 and 5.12 come back `AMBIGUOUS_LEGACY_REFERENCE`. A
+*subsection* citation never resolves this way, because Rule 6.3 has been headed
+SETTLEMENT in every version ever filed while its subsections moved twice.
+
+**Cycles.** The graph genuinely contains one: the Member Agreement incorporates
+the Rulebook and the Rulebook refers back to the Member Agreement. Traversal is
+cycle-safe and deduplicated by citation key, ordering is canonical so a graph
+built in any insertion order flattens, fingerprints and assesses identically,
+and the cycle is reported in the audit output. A cycle is not an error — but it
+is not a loophole either: an undischarged material edge inside one still blocks.
+
+**Claim-scoped materiality.** The Rulebook and certifications cite 29 federal
+regulations — registration, capital, recordkeeping, disciplinary notice, filing
+procedure. Each was reviewed once against its eCFR title and declared
+`PROCEDURAL_FOR_CLAIM`, discharging all 29 (A-60). This is a per-citation,
+per-context, per-claim policy with exact citation bounds — never "CFTC
+regulations are procedural", which would wave through a future Part 38 rule
+about settlement. Payout language in the citing sentence vetoes any declaration,
+a declared payout impact can never be downgraded, and every declaration is
+scoped to `cftc_regulations`: Rule 6.3, 7.1, 7.2, Market Outcome Review, scalar
+contracts and Member-Agreement binding stay strict. The policy version and
+declaration id are fingerprinted, so revocation is drift.
+
+Two scanner-precision fixes fell out of this. Citing context is now the text
+around the citation rather than the whole block, because a definitions run has
+no sentence boundaries and the Scalar Contract definition was bleeding into the
+definition of "Person". And the payout cues were too loose — "unable to **pay**
+its obligations" is an insolvency clause and an "**amended** schedule" of
+disciplinary offences is not a contract modification. Tightening a cue opens no
+hole: the reference becomes `UNCLASSIFIED`, which blocks exactly as `MATERIAL`
+does.
 
 ## 23. Opportunities observed
 
@@ -380,10 +526,21 @@ not been shown is that any *real* market's contract supports one.
 | `product_metadata` | typed `object`, no schema, unpopulated |
 | boundary landings on strike edges | a tick-size question the helper does not answer |
 | whole-degree settlement domains | asserted in one live request, **not attested** |
+| which Rulebook *edition* binds | **DOCUMENTED**: as amended from time to time (A-57A) |
+| what BOND's "Rule 6.3(b)" points at | **RESOLVED** to 6.3(c) by amendment lineage (A-56) |
+| what CRIMECHARGE's "Rule 6.3(b)" points at | **BROKEN AT ISSUANCE**; not resolvable (A-57B) |
+| whether BOND/CRIMECHARGE were ever amended | **NO_AMENDMENT_FOUND** across the sources searched |
+| whether YES + NO == notional under Rule 6.3(c)(b) | **not stated anywhere in the Rulebook** (A-59) |
+| the Kalshi Klear clearing rules | sought at two URLs, **HTTP 404**; not obtained |
+| whether Rule 6.3(c) "fair allocation" preserves YES + NO | a legal reading, **not attempted** |
+| what the KXTIME certification incorporates | PDF has no text layer; needs a reviewer declaration |
 
 ## 25. What Phase 1 explicitly does NOT prove
 
 - that arbitrage exists on Kalshi, or that it does not;
+- that a citation inside a governing document points at the provision it
+  appears to; that is a separate, unresolved question from which edition binds
+  (§22a);
 - that any real market's settlement semantics support a contractual claim;
 - that `live + historical` enumeration is complete membership;
 - that a detected candidate would fill — all legs are non-atomic and
@@ -429,7 +586,10 @@ a defect in the system. Four candidates are queued for that decision.
 
 ## 28. Proposed Phase-1 freeze
 
-Not merged, not tagged. Awaiting review.
+**Blocked.** Not merged, not tagged, and not proposed for freeze: the
+acceptance pass found that evidence completeness was computed wrongly for every
+market queued for review (§22a). The 24-hour soak has not been started, and no
+certificate has been approved.
 
 | | |
 | --- | --- |
@@ -448,7 +608,9 @@ Not merged, not tagged. Awaiting review.
 
 **Outstanding semantic-validation limitations**: no human-approved settlement
 certificate; no relation certificate; the one live AT_LEAST_ONE request has an
-undischarged domain condition. See §22 and §24.
+undischarged domain condition; and all 6 stored review requests are
+`EVIDENCE_INCOMPLETE` under the corrected policy, pending reviewer declarations
+of what their contract PDFs incorporate. See §22, §22a and §24.
 
 **Phase-2 prerequisites**: §29.
 
@@ -456,6 +618,8 @@ undischarged domain condition. See §22 and §24.
 
 1. At least one human-approved settlement certificate, with the binary
    complement detector observed running on that live market — any classification.
+   This now requires the incorporated Rulebook provisions to be read and the
+   numbering mismatch (A-56) resolved, not merely the contract terms fetched.
 2. A relation path exercised end to end, or an explicit statement that no
    straightforward relation can be safely certified.
 3. A longer soak (≥ 24h) with zero unexplained replay mismatches.

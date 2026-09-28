@@ -35,13 +35,20 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from predarb.clock import ensure_utc
 from predarb.semantics.fingerprint import (
     ABSENT,
     SettlementEvidenceFingerprint,
 )
+from predarb.semantics.pdf_text import PdfExtraction
+
+if TYPE_CHECKING:
+    # Deferred to keep the import one-directional at runtime: dependencies are
+    # built *on* documents, so predarb.semantics.dependency imports this module.
+    # The bundle's back-reference is the only edge pointing the other way.
+    from predarb.semantics.dependency import DependencySet
 
 __all__ = [
     "DocumentRetrieval",
@@ -62,9 +69,18 @@ class DocumentRetrieval(StrEnum):
     NOT_ATTEMPTED = "NOT_ATTEMPTED"
     NO_URL_PUBLISHED = "NO_URL_PUBLISHED"
 
+    OPERATOR_SUPPLIED = "OPERATOR_SUPPLIED"
+    """Bytes provided by the operator rather than fetched by this client.
+
+    Kalshi's own site answers HTTP 429 to this client for several governing
+    documents, and the honest response is to have a human supply the file --
+    not to have the fetcher impersonate a browser to get around a block the
+    publisher put there. Recorded as a distinct status so the evidence trail
+    never claims we retrieved something we did not."""
+
     @property
     def is_usable(self) -> bool:
-        return self is DocumentRetrieval.RETRIEVED
+        return self in {DocumentRetrieval.RETRIEVED, DocumentRetrieval.OPERATOR_SUPPLIED}
 
 
 class TextExtraction(StrEnum):
@@ -116,6 +132,16 @@ class ExternalDocument:
     text: str | None = None
     note: str | None = None
 
+    extraction_detail: PdfExtraction | None = None
+    """Provenance for a derived text extraction: parser, version, page counts,
+    zero-text pages, warnings, and the hash of the text produced.
+
+    Deliberately **not** fingerprinted. The document's legal identity is
+    ``content_sha256``; if the parser version were part of the fingerprint,
+    upgrading pypdf would invalidate every certificate on the exchange while no
+    contract had changed a byte. What a better parser *discovers* does change
+    the fingerprint, through the dependency set it feeds."""
+
     def __post_init__(self) -> None:
         if self.retrieved_at is not None:
             object.__setattr__(self, "retrieved_at", ensure_utc(self.retrieved_at))
@@ -141,10 +167,12 @@ class ExternalDocument:
         extraction: TextExtraction,
         text: str | None,
         note: str | None = None,
+        extraction_detail: PdfExtraction | None = None,
+        retrieval: DocumentRetrieval = DocumentRetrieval.RETRIEVED,
     ) -> Self:
         return cls(
             url=url,
-            retrieval=DocumentRetrieval.RETRIEVED,
+            retrieval=retrieval,
             retrieved_at=retrieved_at,
             http_status=http_status,
             content_type=content_type,
@@ -153,6 +181,45 @@ class ExternalDocument:
             extraction=extraction,
             text=text,
             note=note,
+            extraction_detail=extraction_detail,
+        )
+
+    def payload(self) -> dict[str, Any]:
+        """Storage form. ``text`` is deliberately dropped: it is derived, it can
+        be large, and it is not fingerprinted -- the hash is what binds."""
+        return {
+            "url": self.url,
+            "retrieval": self.retrieval.value,
+            "retrieved_at": self.retrieved_at.isoformat() if self.retrieved_at else None,
+            "http_status": self.http_status,
+            "content_type": self.content_type,
+            "content_sha256": self.content_sha256,
+            "content_bytes": self.content_bytes,
+            "extraction": self.extraction.value,
+            "note": self.note,
+            "extraction_detail": (
+                self.extraction_detail.payload() if self.extraction_detail else None
+            ),
+        }
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> Self:
+        retrieved_at = payload.get("retrieved_at")
+        return cls(
+            url=payload.get("url"),
+            retrieval=DocumentRetrieval(payload["retrieval"]),
+            retrieved_at=datetime.fromisoformat(retrieved_at) if retrieved_at else None,
+            http_status=payload.get("http_status"),
+            content_type=payload.get("content_type"),
+            content_sha256=payload.get("content_sha256"),
+            content_bytes=payload.get("content_bytes"),
+            extraction=TextExtraction(payload.get("extraction", "NOT_APPLICABLE")),
+            note=payload.get("note"),
+            extraction_detail=(
+                PdfExtraction.from_payload(detail)
+                if (detail := payload.get("extraction_detail"))
+                else None
+            ),
         )
 
     @property
@@ -161,8 +228,15 @@ class ExternalDocument:
 
         True whenever we hold bytes we could not render readably. Approving on
         the strength of garbled text would be approving nothing.
+        Also true when the parser reported anything short of a clean full
+        extraction: incomplete, corrupt or suspicious text is a reason to go to
+        the source, not a weaker form of having read it.
         """
-        return self.retrieval.is_usable and not self.extraction.is_readable
+        if not self.retrieval.is_usable:
+            return False
+        if not self.extraction.is_readable:
+            return True
+        return self.extraction_detail is not None and self.extraction_detail.requires_manual_review
 
     def describe(self) -> str:
         if not self.retrieval.is_usable:
@@ -193,6 +267,14 @@ class SettlementEvidenceBundle:
     series_fields: Mapping[str, Any]
     documents: Mapping[str, ExternalDocument]
 
+    dependencies: Mapping[str, DependencySet] = field(default_factory=dict)
+    """What each governing document itself incorporates, keyed by parent name.
+
+    Absent for bundles captured before incorporation was modelled. The policy
+    treats an absent set as an *unknown* closure rather than an empty one, so
+    those bundles become incomplete rather than silently passing -- which is the
+    correct reading: nobody enumerated what their contract terms incorporate."""
+
     source_refs: Mapping[str, str] = field(default_factory=dict)
     """Raw-payload identifiers, so the exact API responses can be found again."""
 
@@ -203,6 +285,7 @@ class SettlementEvidenceBundle:
         for name in ("market_fields", "event_fields", "series_fields"):
             object.__setattr__(self, name, dict(sorted(getattr(self, name).items())))
         object.__setattr__(self, "documents", dict(sorted(self.documents.items())))
+        object.__setattr__(self, "dependencies", dict(sorted(self.dependencies.items())))
         object.__setattr__(self, "source_refs", dict(sorted(self.source_refs.items())))
 
     def component_values(self) -> dict[str, Any]:
@@ -229,6 +312,10 @@ class SettlementEvidenceBundle:
                 values[f"document.{name}.sha256"] = ABSENT
             values[f"document.{name}.retrieval"] = document.retrieval.value
             values[f"document.{name}.url"] = document.url if document.url else ABSENT
+        for dependency_set in self.dependencies.values():
+            # Includes the hash of every incorporated source, so an amendment to
+            # a rulebook a certificate relied on is drift in that certificate.
+            values.update(dependency_set.fingerprint_values())
         return values
 
     def fingerprint(self) -> SettlementEvidenceFingerprint:

@@ -21,12 +21,11 @@ import typer
 
 from predarb.config import Settings
 from predarb.domain.money import Price
+from predarb.semantics.dependency import DependencySet
 from predarb.semantics.evidence import (
-    DocumentRetrieval,
     EvidenceCompleteness,
     ExternalDocument,
     SettlementEvidenceBundle,
-    TextExtraction,
 )
 from predarb.semantics.fingerprint import ABSENT, SettlementEvidenceFingerprint
 from predarb.semantics.policy import CertificateClaim, CompletenessReport, policy_for
@@ -445,20 +444,11 @@ def _bundle_from_snapshot(payload: dict[str, Any]) -> SettlementEvidenceBundle:
         return value
 
     documents = {
-        name: ExternalDocument(
-            url=body["url"],
-            retrieval=DocumentRetrieval(body["retrieval"]),
-            retrieved_at=(
-                datetime.fromisoformat(body["retrieved_at"]) if body["retrieved_at"] else None
-            ),
-            http_status=body["http_status"],
-            content_type=body["content_type"],
-            content_sha256=body["content_sha256"],
-            content_bytes=body["content_bytes"],
-            extraction=TextExtraction(body["extraction"]),
-            note=body["note"],
-        )
-        for name, body in payload["documents"].items()
+        name: ExternalDocument.from_payload(body) for name, body in payload["documents"].items()
+    }
+    dependencies = {
+        name: DependencySet.from_payload(body)
+        for name, body in payload.get("dependencies", {}).items()
     }
     return SettlementEvidenceBundle(
         snapshot_id=payload["snapshot_id"],
@@ -471,6 +461,7 @@ def _bundle_from_snapshot(payload: dict[str, Any]) -> SettlementEvidenceBundle:
         event_fields=revive(payload["event_fields"]),
         series_fields=revive(payload["series_fields"]),
         documents=documents,
+        dependencies=dependencies,
         source_refs=payload["source_refs"],
         capture_errors=tuple(payload["capture_errors"]),
     )
@@ -495,6 +486,9 @@ def _request_from_payload(
             manual_viewing_required=dict(body["manual_viewing_required"]),
             present_optional=tuple(body["present_optional"]),
             document_requirements=dict(body.get("document_requirements", {})),
+            unknown_dependency_closures=tuple(body.get("unknown_dependency_closures", ())),
+            unresolved_dependencies=tuple(body.get("unresolved_dependencies", ())),
+            dependency_closures=dict(body.get("dependency_closures", {})),
         ),
         rules_hash=payload["rules_hash"],
         generated_at=datetime.fromisoformat(payload["generated_at"]),

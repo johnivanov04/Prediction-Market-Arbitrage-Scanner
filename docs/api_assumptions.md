@@ -1488,6 +1488,325 @@ and never issues anything.
 `product_metadata` is typed `object` with no schema at all. An undocumented
 field cannot carry a settlement guarantee, so nothing is inferred from its keys.
 
+### A-54 Contract terms incorporate the Exchange Rulebook — DOCUMENTED
+
+Every Kalshi contract-terms document examined carries an incorporation clause.
+Quoted verbatim from `https://assets.kalshi.com/contract_terms/BOND.pdf`
+(sha256 `24ee686e7da34b4b…`, retrieved 2026-09-24):
+
+> Contingencies: Before Settlement, Kalshi may, at its sole discretion, initiate
+> the Market Outcome Review Process pursuant to Rule 6.3(d) of the Rulebook. If
+> an Expiration Value cannot be determined on the Expiration Date, Kalshi has
+> the right to determine payouts pursuant to Rule 6.3(b) in the Rulebook.
+
+The second sentence assigns payout determination for an entire class of terminal
+states to a document outside the contract terms. It is therefore **material to
+`STANDARD_BINARY_COMPLEMENT`**: it governs what is paid when the ordinary
+Expiration Value does not exist.
+
+Scanned across all five markets whose evidence was captured in the Phase-1
+acceptance pass (ten governing documents in total):
+
+| Document | Rule citations found |
+| --- | --- |
+| `BOND.pdf` (contract terms) | 6.3(b), 6.3(d), 7.1, 7.2 |
+| `CRIMECHARGE.pdf` (contract terms) | 6.3(b), 6.3(d), 7.1, 7.2 |
+| `BTC15M` contract terms | 6.3(b), 6.3(d), 7.1, 7.2 |
+| `NCAAFGAME` contract terms | 7.1, 7.2 |
+| `KXTIME` contract terms | **6.3(c)**, 7.1 |
+| product certifications (4 of 5) | 3.6 / 3.13, 5.12 / 5.16, 40.2, 40.2(a), 7.1, 7.2 |
+
+Nine of ten incorporate at least one provision capable of changing a payout.
+
+### A-55 Current Exchange Rulebook version — DOCUMENTED
+
+| Property | Value |
+| --- | --- |
+| Version | **1.29** (stated on page 1: "KalshiEX LLC Rulebook / Version: 1.29") |
+| URL fetched | `https://kalshi-public-docs.s3.amazonaws.com/regulatory/rulebook/Kalshi%20DCM%20Rulebook%20v.1.29.pdf` |
+| SHA-256 | `3b6d4ffd5b32330d3466179d4cae610372d07511123c9976bc6cbb1b5185240b` |
+| Size | 860,053 bytes |
+| Content-Type | `application/pdf` |
+| Last-Modified | `Mon, 17 Aug 2026 20:58:55 GMT` (ETag `636648dead5086fc91ee4bf47b09368c`) |
+| Retrieved | 2026-09-24 |
+| Text extraction | FAILED (PDF) — requires manual viewing |
+
+`https://kalshi.com/regulatory/rulebook` answers **HTTP 429** to automated
+fetch, as does the fee schedule (A-14) and the Member Agreement (A-57). A 429
+body is an error page, not the document: its hash must never be recorded as
+document evidence. The capture path records `HTTP_ERROR` for exactly this case.
+
+Rule 6.3 in v1.29, in order: **(a)** Binary Contract; **(b)** Scalar Contract;
+**(c)** payouts where the Expiration Value or proportion cannot be determined —
+last traded price, else a binding "fair allocation" by the Outcome Review
+Committee; **(d)** Settlement Date mechanics; **(e)** death of a natural person
+subject; **(f)** Market Outcome Review Process per Rule 7.1; **(g)**
+notification. Rule 7.1 is the Market Outcome Review Process; Rule 7.2 is
+Contract Modifications (new Source Agency, adjusted Expiration Date, early
+expiration).
+
+### A-56 Rule 6.3 subsection lineage — DOCUMENTED
+
+Rule 6.3's subsections have been renumbered twice, by two filed amendments we
+hold. The lineage is evidenced at every hop; nothing here is inferred from
+prose similarity.
+
+| Version | 6.3(b) | 6.3(c) | 6.3(d) | 6.3(e) | 6.3(f) |
+| --- | --- | --- | --- | --- | --- |
+| **v1.14** (eff. 2024-11-27) | **payout determination** | Settlement Date | **Market Outcome Review** | notification | — |
+| **v1.16** (eff. 2025-03-03) | Scalar Contract | **payout determination** | Settlement Date | **Market Outcome Review** | notification |
+| **v1.29** (eff. 2026-08-17) | Scalar Contract | **payout determination** | Settlement Date | death of a natural person | **Market Outcome Review** |
+
+**Amendment 1 — scalar contracts.** `rules02172515652`, filed 2025-02-18,
+effective 2025-03-03, v1.15 → v1.16, sha256 `f2d3a3026aad218e…` (1,321,051 B,
+152 pages: tracked *and* clean copies). Cover letter: *"The amendments are
+intended to include scalar contracts… Attached to this cover letter is a copy of
+the Rulebook showing changes, as well a clean copy."* The tracked copy inserts a
+new Scalar Contract paragraph at 6.3(b), displacing everything below by one
+letter.
+
+**Amendment 2 — settlement of contracts.** `rules03022640155`, filed 2026-03-02,
+effective 2026-03-17, sha256 `cb84ebe8b15adc5e…`. Appendix A states in words:
+*"RULE 6.3 SETTLEMENT [Existing subsections (a) through (d) unchanged.] (e) If a
+natural person who is the primary subject of a Contract's Underlying or Payout
+Criterion dies prior to Expiration…"* — a new (e), displacing Market Outcome
+Review from (e) to (f).
+
+**Record completeness.** Official versions v1.14, v1.18 and v1.29 bracket the
+window and their Rule 6.3 text differs by exactly these two amendments.
+Intermediate version filings (v1.15, v1.17, v1.19–v1.28) were not individually
+enumerated, so this establishes the *net* mapping across the window rather than
+proving no provision moved and moved back.
+
+**Rule numbers are not stable in general.** Twenty-one rule numbers changed
+meaning between v1.14 and v1.29 — Rule 3.6 went from "DUES, FEES, AND EXPENSES
+PAYABLE BY MEMBERS" to "OBLIGATIONS APPLICABLE TO ALL PARTICIPANTS", and 5.12
+from "HOURS FOR TRADING CONTRACTS" to "INVALIDATION OF ORDERS AND TRADES UPON
+SUSPENSION". Rule 7.1 (Market Outcome Review Process) and 7.2 (Contract
+Modifications) kept both number and heading throughout.
+
+### A-57 How the Rulebook binds, and what a citation points at — TWO questions
+
+Previously recorded as one UNKNOWN. That conflated two independent questions.
+
+#### A. Rulebook version-binding policy — DOCUMENTED: `AS_AMENDED_FROM_TIME_TO_TIME`
+
+The current Kalshi Member Agreement states, verbatim:
+
+> You will be bound by, and comply with, the rules and regulations established
+> by Kalshi applicable to the Services contained in the Kalshi rules (**as
+> supplemented or amended from time to time**, the "Kalshi Rulebook"). In the
+> event of any conflict between this Agreement and the Kalshi Rulebook, the
+> Kalshi Rulebook will govern.
+
+and:
+
+> You will abide by and be subject to the Kalshi Rulebook, **as now existing and
+> as hereafter duly amended from time to time**, including the obligation to
+> submit to arbitration.
+
+| Member Agreement | Value |
+| --- | --- |
+| Official URL | `https://kalshi.com/docs/kalshi-member-agreement.pdf` |
+| SHA-256 | `e1c8a173b7a5c2948a01624251b96be36d9a61bdd09cf134f8f226d61657dfe4` |
+| Size | 172,787 bytes, `application/pdf` |
+| Retrieved | 2026-09-27 |
+| Stated version/date | **none** — identity rests entirely on the content hash |
+| Extraction | pypdf 6.19.0, CLEAN, 8 pages, 0 zero-text, 27,797 chars |
+| Retrieval status | `OPERATOR_SUPPLIED` |
+
+It further incorporates the Kalshi Klear Self-Clearing Member Agreement, the
+KalshiEX Rulebook, the Kalshi Klear Rulebook, and "any other terms and
+agreements duly posted [at] https://kalshi.com/regulatory".
+
+**Access note.** `kalshi.com` answers **HTTP 429** to this client for the Member
+Agreement, the Rulebook page and the fee schedule, under plain, descriptive and
+curl-style User-Agents alike; only a full browser User-Agent is served.
+Spoofing one would circumvent an access control the publisher put in place, so
+the product fetcher does not. The document is supplied from a local path and
+recorded as `OPERATOR_SUPPLIED`, distinct from `RETRIEVED`.
+
+#### B. Legacy section-reference resolution — per citation, per product
+
+Dynamic binding settles which *edition* governs; it says nothing about what a
+written subsection number points at. Resolved separately, and the two products
+reviewed come out **differently**:
+
+| | BOND | CRIMECHARGE |
+| --- | --- | --- |
+| Certified | 2025-01-17 | 2025-07-24 |
+| Rulebook in force | v1.14 | v1.18 (post-scalar) |
+| "Rule 6.3(b)" pointed at | **payout determination** — correct | **Scalar Contract** — wrong |
+| "Rule 6.3(d)" pointed at | **Market Outcome Review** — correct | **Settlement Date mechanics** — wrong |
+| Status | `HISTORICAL_REFERENCE_RESOLVED` → 6.3(c) and 6.3(f) | `BROKEN_REFERENCE_AT_ISSUANCE` |
+
+CRIMECHARGE was certified nearly five months after the scalar amendment took
+effect. Its citations were already wrong the day it was written, under any
+post-scalar Rulebook version, and it does **not** inherit BOND's pre-amendment
+lineage: a citation that was wrong when written does not acquire a valid
+historical target because an older template once used that number.
+
+No CFTC Regulation 40.6 amendment naming either product was found. The 2026
+contingency migration (6.3(d)/6.3(b) → 7.1) is carried out one product at a
+time; four such amendments were read and neither of these is among them.
+
+### A-59 No explicit payout-conservation invariant — DOCUMENTED absence
+
+Searched in Rulebook v1.29 for a statement that YES payout + NO payout equals
+the notional. There is none.
+
+* `"Settlement Value" means the amount which the holder of a Contract may
+  receive for a Contract held until Expiration.` — a per-holder amount, not a
+  pot to be divided.
+* `"Fully Collateralized Contract"` concerns margin sufficiency against the
+  Clearing House, not payout conservation.
+* Rule 6.3(d) settlement mechanics say the settlement account is debited "in an
+  amount **no less than**" the Settlement Value times the **in-the-money**
+  positions — an inequality, on one side only.
+
+Where complementarity *is* explicit: Rule 6.3(a) (binary, pays one side or the
+other), Rule 6.3(b) (scalar: "the **proportion of the Settlement Value** to be
+distributed to holders of long and short positions", worked example $0.10/$0.90)
+and Rule 6.3(c) methodology (a) (last traded price, worked example $0.10/$0.90).
+
+Where it is **not**: Rule 6.3(c) methodology (b), where "the Outcome Review
+Committee will be responsible for making a binding determination of **fair
+allocation**", with no stated constraint that the allocation sums to the
+Settlement Value; and Rule 6.3(e), which settles "at the last traded price prior
+to the death" without stating what the short side receives. The Kalshi Klear
+rulebook was sought at two published URLs and returned HTTP 404, so the clearing
+rules were not obtained.
+
+### A-58 PDF text extraction — DERIVED evidence, pypdf 6.19.0
+
+Raw bytes remain authoritative; extracted text is derived and carries its own
+provenance (parser name and version, source SHA-256, status, extracted-text
+SHA-256, page count, zero-text page numbers, character count, warnings).
+
+Extraction provenance is deliberately **not** fingerprinted: were the parser
+version part of the evidence fingerprint, upgrading pypdf would invalidate every
+certificate on the exchange while no contract had changed a byte. What a better
+parser *discovers* does change the fingerprint, through the dependency set it
+feeds — which is correct, because a newly found material rule is a real reason
+to re-review.
+
+No OCR. Kalshi's governing documents carry a real text layer; OCR guesses
+glyphs and is a far weaker evidence transformation. A page with no text layer is
+reported as a zero-text page and sent to manual review.
+
+Corpus results (12 governing documents, 2026-09-27): 11 CLEAN, 0 PARTIAL,
+1 FAILED. The failure is `KXTIME-26-ZOH` product certification — 8 of 8 pages
+yield no text, i.e. a scan. It is reported as requiring manual review and its
+dependency closure stays UNKNOWN.
+
+
+### A-60 Claim-scoped dependency materiality — POLICY, human-reviewed
+
+The Exchange Rulebook and product certifications cite **29 federal regulations**.
+Treating them as part of the proof that YES + NO equals the notional blocked
+every market on the exchange. Each was reviewed once, against titles read from
+the eCFR (Title 17 structure snapshot 2026-09-01, 3,525 sections indexed), and
+declared `PROCEDURAL_FOR_CLAIM` for `STANDARD_BINARY_COMPLEMENT`.
+
+| Regulation | eCFR title | Cited for |
+| --- | --- | --- |
+| 40.2 | Listing products for trading by certification | filing authority in the certification letter |
+| 40.6 | Self-certification of rules | lead time before an amended fee schedule takes effect |
+| 1.3, 3.1, 156.1, 1.17(b) | Definitions / Minimum financial requirements | borrowed definitions ("Person", "controlled accounts", "principal", "broker association") |
+| 1.11 | Risk Management Program for FCMs | FCM eligibility |
+| 1.12 | Maintenance of minimum financial requirements | bar on trading while under early-warning reporting |
+| 1.17 | Minimum financial requirements for FCMs and IBs | FCM/IB eligibility |
+| 155.3 | Trading standards for FCMs | FCM proprietary trading |
+| 1.31 | Regulatory records; retention and production | record retention |
+| 1.35 | Records of commodity interest transactions | record retention |
+| 1.64 | Composition of SRO governing boards | board-composition report |
+| 1.59 | Activities of SRO employees, board and committee members | governance conflicts |
+| 1.63 | Service on SRO boards by persons with disciplinary histories | disciplinary-offence definitions |
+| 1.69 | Voting by interested members of SRO boards | abstention |
+| 9.11 | Form, contents and delivery of notice of disciplinary action | disciplinary notice |
+| 9.13 | Publication of notice | disciplinary notice |
+| 38.710 | Disciplinary sanctions | disciplinary notice |
+
+None of them defines a payout, a Settlement Value, an Expiration Value, a void,
+or an outcome review. **None is left MATERIAL or UNKNOWN.**
+
+**Not a whitelist.** There is deliberately no rule of the form "CFTC regulations
+are procedural" or "anything in 17 CFR is procedural". Part 38 is the DCM core
+principles and Part 40 is product filing; either could contain a future rule
+about settlement, and a part-level exemption would wave it straight through. A
+`CitationScope` therefore names its citations **exactly** and refuses a prefix,
+so a regulation not on the list arrives `UNCLASSIFIED` and blocks.
+
+Four further guards:
+
+1. **Context.** A declaration for "40.2 cited as the authority for filing a
+   self-certification" is scoped to `PRODUCT_CERTIFICATION_FILING`. The same
+   citation in the contract terms is not covered.
+2. **Payout veto.** Payout-shaped language in the citing sentence voids any
+   declaration, whatever else matches.
+3. **Declared impact.** A reference whose citing sentence the scanner read as
+   payout-bearing can never be downgraded.
+4. **Claim.** A declaration for one claim does not reach another.
+
+**Rulebook references stay strict.** Every declaration is scoped to
+`cftc_regulations`; none covers `exchange_rulebook`. Rule 6.3 variants, 7.1,
+7.2, Market Outcome Review, scalar contracts and Member-Agreement
+version-binding remain material.
+
+**Versioned and revocable.** The policy version and the declaration id are part
+of each dependency's fingerprint, so revoking a declaration or bumping the
+policy is visible drift that puts affected evidence back to incomplete.
+
+### A-61 Negative reference verdicts require an exhaustive version record
+
+Found while re-evaluating candidates. The resolver was reporting
+`BROKEN_REFERENCE_AT_ISSUANCE` for "Rule 3.13" in a certification dated
+2026-05-07 because it compared against **v1.18** (July 2025) — the newest
+version held, not the version in force. Rule 3.13 was added somewhere in
+v1.19–v1.28, which are not held.
+
+`SourceHistory.versions_are_exhaustive` now gates every *negative* verdict.
+With a sampled record, an absent or changed heading yields `UNKNOWN` with the
+reason stated, rather than asserting what an unheld edition said. Positive
+verdicts survive sampling, because a heading identical across every recorded
+version bracketing the window is bracket evidence in its own right.
+
+Consequence: BOND's citations to Rule 3.6 and 5.12 are now `UNKNOWN` rather than
+`AMBIGUOUS_LEGACY_REFERENCE` — v1.15 is not held either. Both still block. The
+underlying research finding stands: 21 rule numbers carry different headings in
+v1.14 and v1.29, both of which *are* held.
+
+
+### A-62 Strict two-state binary vs. complementarity — SEPARATE questions
+
+Two distinct propositions, and neither implies the other:
+
+* **Strict two-state binary** — every permitted terminal state pays the whole
+  notional to exactly one side.
+* **Complementarity** — every permitted terminal state satisfies
+  `YES payout + NO payout == notional`, whether or not either side gets it all.
+
+The `ENTITYOUTCOME` terms say: *"the Contract shall resolve at a Settlement
+Value equal to $1/N, rounded down, where N is the number of entities sharing the
+same stage or placement"*. That clause **disproves strict two-state binary** for
+the family: a fractional Settlement Value is expressly permitted.
+
+It establishes **nothing** about complementarity. The clause fixes one side's
+Settlement Value and is silent on how the other side is computed. Inferring a
+shortfall from "rounded down" would require assuming the two sides are rounded
+independently rather than as complements, and no governing text examined says
+which. The correct statement:
+
+> The clause permits a fractional Settlement Value and therefore prevents a
+> strict two-state binary certificate. The governing evidence reviewed so far
+> does not establish the corresponding NO payout strongly enough to prove or
+> disprove full complementarity.
+
+`predarb.semantics.settlement_census` encodes the asymmetry:
+`SettlementMechanism.establishes_complement_break` is `False` for every member,
+and `classify_family` takes `complement_proven` as an input it can never derive.
+
+
 ## Sources
 
 - https://docs.kalshi.com/
@@ -1515,3 +1834,17 @@ field cannot carry a settlement guarantee, so nothing is inferred from its keys.
 - https://kalshi.com/docs/kalshi-fee-schedule.pdf — effective 2026-07-07; still
   HTTP 429 to automated fetch from this environment, values above verified by
   independent review
+- https://kalshi-public-docs.s3.amazonaws.com/regulatory/rulebook/Kalshi%20DCM%20Rulebook%20v.1.29.pdf
+  — Exchange Rulebook v1.29, retrieved 2026-09-24, sha256 `3b6d4ffd5b32…`
+- https://kalshi.com/regulatory/rulebook — HTTP 429 to automated fetch
+- https://kalshi.com/docs/kalshi-member-agreement.pdf — Member Agreement,
+  retrieved 2026-09-27, sha256 `e1c8a173b7a5c294…`; HTTP 429 to this client, so
+  recorded as OPERATOR_SUPPLIED (A-57)
+- https://www.cftc.gov/sites/default/files/filings/orgrules/25/07/rules07012525155.pdf
+  — Rulebook v1.18, sha256 `d8d185862a439a8f…`
+- https://www.cftc.gov/filings/orgrules/ — KalshiEX CFTC Reg 40.6 amendments
+  read for the 2026 contingency migration: rules01152637272, rules02042638732,
+  rules040826937, rules0608265775
+- https://assets.kalshi.com/contract_terms/ — per-series contract terms (PDF)
+- https://assets.kalshi.com/regulatory/product-certifications/ — product
+  certifications (PDF)

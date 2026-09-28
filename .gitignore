@@ -73,4 +73,5 @@ yes_basket_scan.json
 soak_report.json
 review_queue.json
 security_scan.json
+review_packets.json
 data/catalogue/

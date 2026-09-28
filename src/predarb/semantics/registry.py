@@ -456,19 +456,12 @@ def _evidence_payload(bundle: SettlementEvidenceBundle) -> dict[str, Any]:
         "market_fields": {k: _jsonable(v) for k, v in bundle.market_fields.items()},
         "event_fields": {k: _jsonable(v) for k, v in bundle.event_fields.items()},
         "series_fields": {k: _jsonable(v) for k, v in bundle.series_fields.items()},
-        "documents": {
-            name: {
-                "url": doc.url,
-                "retrieval": doc.retrieval.value,
-                "retrieved_at": doc.retrieved_at.isoformat() if doc.retrieved_at else None,
-                "http_status": doc.http_status,
-                "content_type": doc.content_type,
-                "content_sha256": doc.content_sha256,
-                "content_bytes": doc.content_bytes,
-                "extraction": doc.extraction.value,
-                "note": doc.note,
-            }
-            for name, doc in bundle.documents.items()
+        "documents": {name: doc.payload() for name, doc in bundle.documents.items()},
+        # Persisted because they are fingerprinted: a snapshot that reloaded
+        # without its incorporation closure would re-fingerprint differently and
+        # could not be issued against the very evidence that was reviewed.
+        "dependencies": {
+            name: dependency_set.payload() for name, dependency_set in bundle.dependencies.items()
         },
         "source_refs": dict(bundle.source_refs),
         "capture_errors": list(bundle.capture_errors),
@@ -517,6 +510,9 @@ def _request_payload(request: ReviewRequest) -> dict[str, Any]:
             "manual_viewing_required": dict(request.completeness.manual_viewing_required),
             "present_optional": list(request.completeness.present_optional),
             "document_requirements": dict(request.completeness.document_requirements),
+            "unknown_dependency_closures": list(request.completeness.unknown_dependency_closures),
+            "unresolved_dependencies": list(request.completeness.unresolved_dependencies),
+            "dependency_closures": dict(request.completeness.dependency_closures),
         },
         "checklist": [
             {"key": q.key, "prompt": q.prompt, "why_it_matters": q.why_it_matters}
