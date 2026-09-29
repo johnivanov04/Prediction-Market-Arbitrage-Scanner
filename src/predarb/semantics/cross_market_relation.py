@@ -38,7 +38,7 @@ carries the settlement paths it survives, and
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
@@ -50,12 +50,15 @@ _MIN_RELATION_MEMBERS: Final = 2
 
 __all__ = [
     "BasketEconomics",
+    "CombinationContract",
     "Comparison",
     "RelationClass",
     "RelationFeasibility",
     "RelationProof",
     "ThresholdContract",
     "at_most_one_over",
+    "combination_and",
+    "combination_basket_economics",
     "covers_domain",
     "nested_implication",
 ]
@@ -320,3 +323,81 @@ def vertical_spread_economics(
 def relation_members_key(members: Iterable[str]) -> tuple[str, ...]:
     """Canonical member ordering, so the same basket built two ways is one basket."""
     return tuple(sorted(set(members)))
+
+
+@dataclass(frozen=True, slots=True)
+class CombinationContract:
+    """A contract paying the notional iff every named leg pays it.
+
+    Polymarket US calls these Combinatorial contracts and defines the payout as
+    a biconditional: "The Contract resolves to $1.00 if and only if every leg is
+    satisfied. If any single leg is not satisfied, the Contract resolves to
+    $0.00, regardless of the outcomes of any remaining unsettled legs."
+    """
+
+    identifier: str
+    legs: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "legs", tuple(sorted(set(self.legs))))
+        if len(self.legs) < _MIN_RELATION_MEMBERS:
+            raise ValueError(f"{self.identifier}: a combination needs at least two distinct legs")
+
+    def yes_given(self, leg_outcomes: Mapping[str, bool]) -> bool:
+        """The combination's outcome, given each leg's."""
+        missing = [leg for leg in self.legs if leg not in leg_outcomes]
+        if missing:
+            raise KeyError(f"{self.identifier}: no outcome supplied for {missing}")
+        return all(leg_outcomes[leg] for leg in self.legs)
+
+
+def combination_and(
+    combination: CombinationContract,
+    *,
+    survives: Iterable[str] = (),
+    broken_by: Iterable[str] = (),
+) -> RelationProof:
+    """The AT_LEAST_ONE basket a combination and its legs form.
+
+    Hold the combination long and every leg short. In every state at least one
+    pays: if all legs hold, the combination pays; if any leg fails, that leg's
+    short pays. There is no state where all of them are zero, which is what
+    makes this an AT_LEAST_ONE set rather than merely a hedge -- and it follows
+    from the biconditional alone, with no assumption about prices.
+    """
+    members = (combination.identifier, *(f"short:{leg}" for leg in combination.legs))
+    return RelationProof(
+        relation=RelationClass.AT_LEAST_ONE,
+        members=members,
+        reasoning=(
+            f"{combination.identifier} pays the notional if and only if every one of "
+            f"{combination.legs} pays it. Holding it long against a short in each leg "
+            "leaves no state with every member at zero: all legs satisfied pays the "
+            "combination, and any leg unsatisfied pays that leg's short."
+        ),
+        survives_settlement_paths=frozenset(survives),
+        broken_by_settlement_paths=frozenset(broken_by),
+    )
+
+
+def combination_basket_economics(
+    combination: CombinationContract, notional: Price
+) -> BasketEconomics:
+    """Long the combination, short every leg: worst case is one notional."""
+    legs = 1 + len(combination.legs)
+    return BasketEconomics(
+        relation=RelationClass.AT_LEAST_ONE,
+        legs=legs,
+        notional=notional,
+        worst_case_payoff=notional,
+        total_bid_cost_symbol=(
+            "p(combo) + " + " + ".join(f"p(short:{leg})" for leg in combination.legs)
+        ),
+        notes=(
+            "Exactly one member pays in the all-satisfied state and in each "
+            "single-failure state; two or more pay when several legs fail, so the "
+            "notional is a floor rather than the expected payoff.",
+            "The floor follows from the combination's own Payout Condition, so it is "
+            "as strong as that clause and no stronger.",
+        ),
+    )

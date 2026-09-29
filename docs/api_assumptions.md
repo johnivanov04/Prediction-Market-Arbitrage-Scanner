@@ -1806,6 +1806,143 @@ which. The correct statement:
 `SettlementMechanism.establishes_complement_break` is `False` for every member,
 and `classify_family` takes `complement_proven` as an input it can never derive.
 
+### A-63 Polymarket US — the Rulebook specifies no product's payout
+
+*Phase 2C. Classification: DOCUMENTED.*
+
+The QCX LLC d/b/a Polymarket US DCM Rulebook, version 2026-08-05, sha256
+`5e3ba3880e63ffb1…`, 84 pages, extracted clean, defines the terminal outcome in
+Rule 1.1 and nowhere else:
+
+> "Contract Outcome" means the result of a Contract as determined in accordance
+> with the Contract Terms. If the Expiration Value satisfies the Payout
+> Condition, the Contract Outcome is $1.00, and the Settlement Amount is payable
+> to holders of long positions in the Contract. If the Expiration Value does not
+> satisfy the Payout Condition, the Contract Outcome is $0.00, and the Settlement
+> Amount is payable to holders of short positions in the Contract.
+
+Screened against the phase-1 failure modes the rulebook is clean: zero hits for
+"fair allocation", "last traded price", "fifty cents", "$0.50"; no rounding rule
+(all five "round" hits are *grounds* and *surrounding*); the only void/refund
+path is the bounded Rule 2.8(d)(iii) emergency "cancellation of a Contract and
+return of any funds paid to enter Trades on the Contracts".
+
+**That cleanliness is an artefact of scope, not a property of the venue.** Rule
+10.2 states that each Contract meets "such specifications … as set forth in the
+rules governing such Contract", and the rulebook supplies no payout arithmetic
+for any product. Every number a holder is paid lives in a Part 40 product
+certification. A venue screen run against a rulebook is therefore not a screen
+of the venue — recorded because this research made that error before catching
+it.
+
+### A-64 Polymarket US athletic contracts — a third terminal state, and a discretionary one
+
+*Phase 2C. Classification: DOCUMENTED.*
+
+Athletic Event Contracts, Rule 9.101, self-certified 2025-09-30 (listed no
+earlier than 2025-10-07), sha256 `50014b0f643953c8…`. The most recent athletic
+certification located; a later amendment may exist and was not found.
+
+Section D states both sides in both ordinary branches — $1.00/$0.00 and
+$0.00/$1.00 — which is the explicitness phase 1 could not obtain from Kalshi.
+It then adds a third:
+
+> If the Outcome is a tie …, then each long and short AEC position shall receive
+> fifty cents ($0.50).
+
+This **conserves** the notional exactly while **disproving** strict two-state
+binariness — the A-62 distinction, now with the opposite sign from
+`ENTITYOUTCOME`: there a fractional payout with an unknown complement, here a
+fractional payout with a known one.
+
+Section K, "Additional Settlement Conditions", supplies the blocker:
+
+> If an event is canceled prior to any Outcome determination, the Exchange, in
+> its sole and absolute discretion, resolve any remaining open positions in a
+> manner that it deems fair and appropriate, which may include a final settlement
+> based on last-traded prices, $0.50 per contract, or other fair and equitable
+> valuation. All such determinations by the Exchange shall be final and binding.
+
+"Last-traded prices" is one number, not a pair, and nothing says the short
+receives the residual; "other fair and equitable valuation" states no arithmetic.
+This is the substance of Kalshi Rule 6.3(c)(b), relocated from the rulebook to
+the product certification. Section B likewise makes the Underlying discretionary
+("Notwithstanding the above, the Exchange may determine the Outcome in its sole
+and absolute discretion").
+
+Encoded in `predarb.venues.polymarket_us.settlement_findings`; the family's
+`ComplementConservationProof.status` is `COMPLEMENT_CONSERVATION_DISPROVEN`.
+
+### A-65 Polymarket US Rule 1.5 — precedence scoped to "trading in", not settlement
+
+*Phase 2C. Classification: UNKNOWN — and it blocks.*
+
+> **1.5. Product Specifications and Contract Terms.** Notwithstanding any
+> provision of these Rules to the contrary, the Product Specifications with
+> respect to a particular Contract shall govern the applicability of these Rules
+> to trading in such Contract and, in the event of any conflict between these
+> Rules and the Product Specifications, the Product Specifications shall govern
+> with respect to trading in the relevant Contract. In the event of any conflict
+> between the Product Specifications and the Contract Terms, the Contract Terms
+> shall govern with respect to trading in the relevant Contract.
+
+The opener is as strong as precedence language gets. The operative scope is
+stated three times as *trading in* the Contract, and settlement is not trading.
+Two readings follow, and no located interpretation, FAQ or advisory reconciles
+them:
+
+* **A — product terms govern settlement.** Sections D and K are titled
+  "Settlement" and "Additional Settlement Conditions", and on reading B the
+  venue would have no stated payout for a tie at all. A tied event pays both
+  sides $0.50.
+* **B — the Rules' Contract Outcome governs settlement.** It is exhaustive on
+  its face over the Payout Condition's two truth values, and it is a Rule. A tie
+  is not a third truth value of a predicate, so a tied event is a Payout
+  Condition not satisfied, and the short receives $1.00.
+
+Recorded as `ControlFinding.UNRESOLVED` →
+`PrecedenceStatus.PRECEDENCE_UNRESOLVED`, which fails closed. Structurally this
+is the Kalshi Rule 7.1 vs. 6.3(c) problem with the documents swapped: there, two
+rules in one book; here, a book and a certification separated by a precedence
+clause whose scope does not quite reach the question.
+
+### A-66 Polymarket US combinatorial contracts — an explicit AND over legs that are not binary
+
+*Phase 2C. Classification: DOCUMENTED (the relation); UNKNOWN (its legs).*
+
+Combinatoric Athletic Outcome Contract, self-certified 2026-05-20, sha256
+`94a0b293e5e57359…`, listed no earlier than 2026-05-21. Notional $1.00, tick
+$0.001–$0.01, margin 100% of at-risk. The Underlying is "the joint Settlement
+Amount of two or more underlying Contracts". Payout Condition:
+
+> **Joint Probability:** Every outcome must be satisfied for the Contract to
+> resolve to $1.00. The Contract resolves to $1.00 if and only if every leg is
+> satisfied. If any single leg is not satisfied, the Contract resolves to $0.00,
+> regardless of the outcomes of any remaining unsettled legs.
+
+This is the only unambiguous logical AND located at any venue in phases 1 and 2,
+and it is stated as a biconditional, so it yields relations with no correlation
+assumption and no price assumption:
+
+* long the combination against a short in every leg is **AT_LEAST_ONE** — the
+  all-satisfied state pays the combination, any single failure pays that leg's
+  short, and no state pays nothing;
+* the combination **implies** each leg (`NESTED_IMPLICATION`), one per leg.
+
+Both are exposed to the same defect. CAOC models its constituents as settling
+"$1.00/$0.00", but per A-64 an athletic leg has a $0.50 tie state. With one leg
+tied and the other satisfied the combination pays $0.00, the tied leg's short
+pays $0.50 and the satisfied leg's short pays nothing: the basket's worst case
+is **half the notional**, not the notional. Verified by exhaustive enumeration
+over all 3ⁿ assignments in `tests/unit/test_polymarket_us_qualification.py`.
+
+The alternative reading — that a tie is a state the Payout Condition does not
+address — is not better; it leaves the combination with no stated outcome.
+Verdict `RELATION_SEMANTICS_UNRESOLVED`: the relation is real and is *not*
+foreclosed by venue algebra (Rule 9.101(F) bounds each side to $0.001–$0.999
+independently and no rule ties the two prices together, unlike ForecastEx Rule
+401(d)). What blocks is which document governs the legs.
+
 
 ## Sources
 
@@ -1848,3 +1985,19 @@ and `classify_family` takes `complement_proven` as an input it can never derive.
 - https://assets.kalshi.com/contract_terms/ — per-series contract terms (PDF)
 - https://assets.kalshi.com/regulatory/product-certifications/ — product
   certifications (PDF)
+- https://polymarketexchange.com/files/legal/ — Polymarket US DCM Rulebook
+  2026-08-05, sha256 `5e3ba3880e63ffb1…` (A-63, A-65)
+- https://www.cftc.gov/filings/orgrules/rules12312536031.pdf — QC Clearing LLC
+  Clearing Rulebook 2025-12-31, sha256 `a5a91041b08f8e1e…`; four months older
+  than the DCM rulebook that cites it, so the clearing dependency is recorded
+  with `DependencyClosure.UNKNOWN`
+- https://www.cftc.gov/filings/ptc/ — QCX LLC product certifications: Athletic
+  Event Contracts 2025-09-30, sha256 `50014b0f643953c8…` (A-64); Combinatoric
+  Athletic Outcome Contract `ptc0520263802`, sha256 `94a0b293e5e57359…` (A-66)
+- https://docs.polymarket.us/fees — taker `Fee = 0.0695 x C x p x (1-p)`, maker
+  rebate `-0.0125`, combinatorial taker
+  `Fee = C x p x [0.0695 x (1-p) + 0.04 x (1-p)^4]`; banker's rounding to
+  $0.01; charged to balance at execution, not netted out of settlement
+- https://docs.polymarket.us/ — REST `GET /v1/orderbook/{symbol}` and `/bbo`
+  plus gRPC `MarketDataSubscriptionAPI`; market data documented as requiring
+  Auth0 JWT with `read:marketdata` scope, so **not** documented as public
