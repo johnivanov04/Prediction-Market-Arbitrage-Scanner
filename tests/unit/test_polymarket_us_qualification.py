@@ -12,6 +12,8 @@ presence in the product terms. That pairing is the finding.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from predarb.domain.money import Price
@@ -157,7 +159,7 @@ class TestOutcomeReviewReachability:
         """It is the best clause at the venue and it still is not enough,
         because a different, untyped path is also reachable."""
         assert OUTCOME_REVIEW.status is MechanismStatus.PROVEN_COMPLEMENTARY
-        assert AEC_COMPLEMENT_PROOF.status is ProofStatus.DISPROVEN
+        assert AEC_COMPLEMENT_PROOF.status is not ProofStatus.PROVEN_FOR_SUBSET
 
 
 class TestUnknownClearingDependencyBlocks:
@@ -188,8 +190,9 @@ class TestUnknownClearingDependencyBlocks:
 class TestCancellationPath:
     """6. The clause that decides the venue, and where it is written."""
 
-    def test_cancellation_is_not_complementary(self):
-        assert CANCELLATION.status is MechanismStatus.NOT_COMPLEMENTARY
+    def test_cancellation_leaves_conservation_unestablished(self):
+        assert CANCELLATION.status is MechanismStatus.UNRESOLVED
+        assert CANCELLATION.blocks
         assert CANCELLATION.reachable
 
     def test_it_permits_last_traded_prices(self):
@@ -203,8 +206,30 @@ class TestCancellationPath:
         assert CANCELLATION.rule_reference.startswith("Rule 9.101(K)")
         assert "Rulebook" not in CANCELLATION.rule_reference
 
-    def test_a_reachable_disproven_path_disproves_the_family(self):
-        assert AEC_COMPLEMENT_PROOF.status is ProofStatus.DISPROVEN
+    def test_an_unconstrained_valuation_is_not_an_authorised_shortfall(self):
+        """The distinction this phase had to be corrected on. Silence about how
+        two payouts relate is not permission for them to miss the notional."""
+        assert CANCELLATION.status is not MechanismStatus.NOT_COMPLEMENTARY
+
+    def test_no_mechanism_at_this_venue_is_disproven(self):
+        assert not any(
+            m.status is MechanismStatus.NOT_COMPLEMENTARY for m in AEC_COMPLEMENT_PROOF.mechanisms
+        )
+
+    def test_so_the_family_verdict_is_not_disproven(self):
+        assert AEC_COMPLEMENT_PROOF.status is not ProofStatus.DISPROVEN
+
+    def test_it_is_blocked_by_incomplete_evidence_instead(self):
+        """Stricter than NOT_PROVEN, and for a stated reason: the mechanism list
+        is not known to be closed and the governing clearing version is unread."""
+        assert AEC_COMPLEMENT_PROOF.status is ProofStatus.EVIDENCE_INCOMPLETE
+        assert not AEC_COMPLEMENT_PROOF.mechanism_closure_established
+
+    def test_closing_the_evidence_gap_would_leave_not_proven(self):
+        """What the verdict becomes once the remaining documents are read: still
+        blocking, still not a claim that anything fails to conserve."""
+        closed = replace(AEC_COMPLEMENT_PROOF, mechanism_closure_established=True)
+        assert closed.status is ProofStatus.NOT_PROVEN
 
     def test_no_rounding_model_governs_that_path(self):
         assert AEC_COMPLEMENT_PROOF.rounding is RoundingModel.UNSPECIFIED

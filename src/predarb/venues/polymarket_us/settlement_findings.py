@@ -137,7 +137,7 @@ TIE: Final = MechanismProof(
 
 CANCELLATION: Final = MechanismProof(
     mechanism=SettlementMechanism.CANCELLATION_LAST_RESULTS,
-    status=MechanismStatus.NOT_COMPLEMENTARY,
+    status=MechanismStatus.UNRESOLVED,
     rule_reference="Rule 9.101(K), 'Cancellation'",
     quoted_text=(
         "If an event is canceled prior to any Outcome determination, the Exchange, "
@@ -148,11 +148,20 @@ CANCELLATION: Final = MechanismProof(
         "final and binding."
     ),
     reasoning=(
-        "Nothing here constrains the two sides to sum to the notional. "
+        "Nothing here establishes the relationship between the two sides. "
         "'Last-traded prices' is a single number, not a pair, and the rule does "
-        "not say the short receives the residual; 'other fair and equitable "
-        "valuation' states no arithmetic at all. This is reachable on any "
-        "cancelled event, and it is the same defect that blocked Kalshi."
+        "not say whether the short receives the residual; 'other fair and "
+        "equitable valuation' states no arithmetic at all. That is a failure to "
+        "establish conservation, which is not the same as authorising a "
+        "shortfall -- a discretionary valuation could as easily be applied as a "
+        "residual pair. UNRESOLVED, not NOT_COMPLEMENTARY.\n\n"
+        "NOT_COMPLEMENTARY would require governing text permitting a terminal "
+        "state where long + short misses the notional. No such text exists at "
+        "this venue: the Rulebook has no combined-payout cap, no residual "
+        "retention by the Exchange, and no aggregate-payout language of any "
+        "kind (the single 'shall not exceed' is a Chapter 11 liability cap). "
+        "The clause is reachable on any cancelled event and it blocks, which is "
+        "the operative consequence either way."
     ),
     both_branches_explicit=False,
 )
@@ -246,7 +255,14 @@ AEC_COMPLEMENT_PROOF: Final = ComplementConservationProof(
         "appropriate.'",
         "Closure is not established: Section K governs irregularities 'not covered "
         "in Section D' as an enumerated list, but Rulebook Rules 10.3, 10.4 and "
-        "2.8(d) reach the same contracts and the interaction is not stated.",
+        "2.8(d) reach the same contracts and the interaction is not stated. The "
+        "clearing rulebook in force on 2026-08-05 has also not been read.",
+        "No mechanism here is NOT_COMPLEMENTARY. An unconstrained valuation "
+        "leaves conservation unestablished; it does not authorise a shortfall, "
+        "and the two must not be conflated. Nothing in the Rulebook or the "
+        "certification caps the combined payout or lets the Exchange keep a "
+        "residual, so the honest verdict is that conservation is not proven "
+        "rather than disproven.",
     ),
 )
 

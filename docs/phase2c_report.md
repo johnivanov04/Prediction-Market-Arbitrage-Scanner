@@ -69,7 +69,7 @@ product certification — and it was invisible to a rulebook screen.
 |---|---|---|
 | `ORDINARY_BINARY` | 9.101(D) bullets 1–2 | PROVEN_COMPLEMENTARY |
 | `TIE_SPLIT` | 9.101(D) bullet 3 | PROVEN_COMPLEMENTARY (but not binary) |
-| `CANCELLATION_LAST_RESULTS` | 9.101(K) Cancellation | **NOT_COMPLEMENTARY, reachable** |
+| `CANCELLATION_LAST_RESULTS` | 9.101(K) Cancellation | **UNRESOLVED, reachable — blocks** |
 | `INDETERMINATE_FALLBACK` | 9.101(K) Postponement | UNRESOLVED |
 | `OUTCOME_REVIEW` | Rulebook 10.4 + Rule 1.1 | PROVEN_COMPLEMENTARY |
 | `VOID_REFUND` | Rulebook 2.8(d)(iii) | UNRESOLVED |
@@ -313,7 +313,7 @@ as DCM+DCO in June 2026, which makes it structurally interesting — but
 
 | Gate | Result |
 |---|---|
-| 1. Exhaustive contractual settlement semantics | **FAIL** — Rule 9.101(K) cancellation is a discretionary valuation with no stated arithmetic; mechanism closure not established; Rule 1.5 precedence unresolved |
+| 1. Exhaustive contractual settlement semantics | **FAIL** — Rule 9.101(K) cancellation is a discretionary valuation with no stated arithmetic, so conservation is *not proven* (not disproven); mechanism closure not established; Rule 1.5 precedence unresolved |
 | 2. Useful related/partitioned market structures | **PASS on the relation, FAIL on its legs** — CAOC states an explicit biconditional AND, the best relation language found in either phase; its legs reach a $0.50 state it does not model, halving the basket floor |
 | 3. No venue mechanic algebraically eliminating opportunity | **PASS** — no inverse-pricing identity; the edge is reachable in principle |
 
@@ -350,7 +350,7 @@ UNKNOWN, and UNKNOWN blocks.
 ## Verification
 
 ```
-pytest                 2846 passed, 2 skipped, 8 deselected
+pytest                 2850 passed, 2 skipped, 8 deselected
 ruff check .           All checks passed
 ruff format --check .  249 files already formatted
 mypy src tests         Success: no issues found in 211 source files

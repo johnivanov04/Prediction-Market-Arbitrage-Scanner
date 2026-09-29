@@ -1863,15 +1863,35 @@ Section K, "Additional Settlement Conditions", supplies the blocker:
 > based on last-traded prices, $0.50 per contract, or other fair and equitable
 > valuation. All such determinations by the Exchange shall be final and binding.
 
-"Last-traded prices" is one number, not a pair, and nothing says the short
-receives the residual; "other fair and equitable valuation" states no arithmetic.
-This is the substance of Kalshi Rule 6.3(c)(b), relocated from the rulebook to
-the product certification. Section B likewise makes the Underlying discretionary
-("Notwithstanding the above, the Exchange may determine the Outcome in its sole
-and absolute discretion").
+"Last-traded prices" is one number, not a pair, and nothing says whether the
+short receives the residual; "other fair and equitable valuation" states no
+arithmetic. This is the substance of Kalshi Rule 6.3(c)(b), relocated from the
+rulebook to the product certification. Section B likewise makes the Underlying
+discretionary ("Notwithstanding the above, the Exchange may determine the
+Outcome in its sole and absolute discretion").
+
+**This establishes NOT_PROVEN, not DISPROVEN.** `NOT_COMPLEMENTARY` requires
+governing text permitting `long + short != notional`. Section K permits no such
+state; it declines to say how the two sides relate, and an unconstrained
+valuation could as easily be applied as a residual pair. No authorised shortfall
+exists at this venue: there is no combined-payout cap, no residual retained by
+the Exchange, and no aggregate-payout language anywhere in the Rulebook (its one
+"shall not exceed" is a Chapter 11 liability cap). The clause still blocks, and
+the mechanism is recorded `UNRESOLVED`.
+
+The general rule, which cost this research a wrong verdict twice — once as
+`COMPLEMENT_CONSERVATION_DISPROVEN` on Kalshi `ENTITYOUTCOME` (A-62) and once
+here:
+
+> Silence about how two payouts relate is not permission for them to miss the
+> notional. Absence of proof is NOT_PROVEN. DISPROVEN requires a text.
 
 Encoded in `predarb.venues.polymarket_us.settlement_findings`; the family's
-`ComplementConservationProof.status` is `COMPLEMENT_CONSERVATION_DISPROVEN`.
+`ComplementConservationProof.status` is
+`APPLICABLE_GOVERNING_EVIDENCE_INCOMPLETE` — one step stricter than
+`COMPLEMENT_CONSERVATION_NOT_PROVEN`, because mechanism closure is not
+established and the clearing version in force has not been read. Closing that
+gap alone yields `COMPLEMENT_CONSERVATION_NOT_PROVEN`.
 
 ### A-65 Polymarket US Rule 1.5 — precedence scoped to "trading in", not settlement
 
