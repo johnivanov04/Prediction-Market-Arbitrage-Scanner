@@ -1963,6 +1963,152 @@ foreclosed by venue algebra (Rule 9.101(F) bounds each side to $0.001–$0.999
 independently and no rule ties the two prices together, unlike ForecastEx Rule
 401(d)). What blocks is which document governs the legs.
 
+### A-67 Rothera — the residual construction, stated outright
+
+*Phase 2D. Classification: DOCUMENTED.*
+
+Rothera Exchange and Clearing LLC (formerly LedgerX, then MIAXdx; a Robinhood
+and Susquehanna joint venture) is a DCM and DCO. Current DCM Rulebook
+2026-05-20, sha256 `26084b165a930e1c…`, 105 pages clean; DCO Rulebook
+2026-05-20, sha256 `7f644f206b98a79e…`, 101 pages clean.
+
+All fourteen product certifications read carry this clause:
+
+> "the Contract will resolve based on the last fair market price as determined
+> by the Exchange pursuant to Rothera DCM Rule 7.2. **Long position holders will
+> receive the number of Contracts held multiplied by the fair market price, and
+> short position holders will receive the number of Contracts held multiplied by
+> $1 minus the fair market price.**"
+
+This is the construction phases 1, 2A and 2C could not obtain anywhere. The
+short is **defined as the residual of the long**, so `long + short = $1.00` for
+every value of `p`, at every precision, with no rounding rule needed — there is
+no second quantity to round. `RoundingModel.RESIDUAL`.
+
+It settles a question this project had been treating as one:
+
+> Discretion over a **price**, with the short defined as the residual, conserves
+> always. Discretion over **two independent payouts** does not. An exchange
+> having "settlement discretion" says nothing until you know which kind.
+
+Ordinary settlement is equally explicit — both sides named in both branches,
+with the losing side's zero written down. Settlement Value $1.00, tick $0.01.
+
+### A-68 Rothera Rule 7.2 — a citation that does not confer what is claimed
+
+*Phase 2D. Classification: DOCUMENTED (the defect); UNKNOWN (the procedure).*
+
+Every fair-market clause attributes the price determination to "Rothera DCM Rule
+7.2", and the certifications add "Consistent with DCM Rule 7.2, Rothera reserves
+the right to make settlement determinations."
+
+**Rule 7.2 is titled "Procedures."** It authorises the Company DCM to adopt
+procedures relating to trading on the Platform: determining the *daily*
+settlement price, disseminating prices, recordkeeping, surveillance, order-size
+limits, position limits, and daily price fluctuation limits. It confers no
+final-settlement authority, never mentions a fair market price, and reserves
+nothing. The rulebook's only definition of a fair market price is in the Error
+Trade Policy, for applying No Cancellation Ranges.
+
+**This does not break conservation**, and concluding otherwise would repeat the
+A-64 error. The residual formula is in the product terms and holds for every
+`p`, whatever Rule 7.2 authorises. What it breaks is the *procedure for choosing
+`p`*: Rule 7.2(B) makes any adopted procedure a separate Website-published
+document, which was not located — an open dependency with `UNKNOWN` closure.
+
+The general rule, third statement of it in this project:
+
+> A broken citation invalidates what depends on the cited rule, and nothing
+> else. Identify what actually rests on it before concluding anything.
+
+Neither Rothera rulebook defines the vocabulary the products use: the DCM
+rulebook has **zero** occurrences of "Event Contract", "Expiration Value",
+"Settlement Value", "Payment Criterion", "final settlement" or "long position".
+
+### A-69 Within-contract conservation does not give an across-contract floor
+
+*Phase 2D. Classification: PROVEN (by exhaustive enumeration).*
+
+The phase-2D result, and the reason `predarb.semantics.payout_relation` exists.
+
+Rothera soccer states a genuine three-way partition over regulation-time goals:
+a winner "scored more goals (a strictly greater number) … at the conclusion of
+regulation time (90 minutes plus stoppage time only)", and a separate "tie"
+iteration requires "an equal number of goals (including 0-0 draws)". Mutually
+exclusive and exhaustive over one number. `EXACTLY_ONE`, proven from text.
+
+Buy all three legs; ordinary settlement pays exactly one notional. Then the
+match is abandoned, and **each contract settles at its own fair market price**:
+
+    basket return = p_home + p_away + p_tie
+
+Nothing requires those to sum to a dollar. Every contract still conserves
+perfectly — long plus short is one notional, exactly — while the sum across
+members is three independent discretionary determinations. **Guaranteed floor
+$0.00, not $1.00.**
+
+    Per-contract conservation and a zero basket floor are consistent.
+    At Rothera both hold.
+
+This is the ForecastEx phase-2B failure by a different route. A YES/NO relation
+model cannot express it, because in that state no contract is YES or NO and both
+sides are paid — which is why relations are now modelled over **payout states**:
+`SettlementRegime` (BINARY_OUTCOME / RESIDUAL_PRICE / INDEPENDENT_PAYOUTS) and
+`PriceCoupling` (COUPLED_TO_NOTIONAL / INDEPENDENT / UNKNOWN) are separate axes,
+and `PartitionBasket.guaranteed_floor` is the minimum over reachable regimes.
+
+A control test confirms the machinery is not returning zero for everything:
+coupling the prices restores the floor to $1.00.
+
+### A-70 Rothera fee schedule — quadratic, half-up, no settlement fee
+
+*Phase 2D. Classification: DOCUMENTED.*
+
+Fee Schedule effective 2026-05-20, sha256 `23457e6e3bfa95f7…`. Charged to
+**both** buyer and seller of every trade:
+
+    Order fees = MAX(round(k x p x (1 - p) x c, 2), 0.01)    round half up
+
+with k = 0.02 (FCM retail customer), 0.03 (market maker), 0.12 (FCM professional
+trading firm). No maker/taker split, no rebates, **no settlement or clearing
+fee**, and no language altering the contractual payout — fees are account
+debits, so they add to basket cost and never reduce what a contract pays.
+
+Two details that matter. The rounding is **half up**, not banker's — Polymarket
+US uses banker's (A-64 sources), so a fee model shared between venues would be
+wrong at every half cent. And `p(1-p)` vanishes at the extremes, so a partition
+basket's legs are cheapest exactly where they mostly sit, while the $0.01 floor
+dominates for small orders.
+
+Implemented in `predarb.venues.rothera.fees`, `Decimal` throughout, validated
+against the schedule's own worked example (k=0.06, 100 contracts at $0.35 →
+$1.37).
+
+### A-71 ProphetX Rule 5.2 — a ceiling is not a complement
+
+*Phase 2D. Classification: DOCUMENTED. Screen closed.*
+
+ProphetX DCM Exhibit M Rulebook, Document Version 1.0, filed 2025-12-05, sha256
+`178d04d7408b493c…`, 54 pages clean.
+
+Rule 5.2(c) gives the Exchange sole discretion over the Settlement Value and, on
+a broadly-defined Settlement Disruption, five remedies including the last traded
+price, voiding contracts, and "such other action as it deems appropriate". The
+only constraint on the pair is 5.2(d):
+
+> "In no case shall the combined payout across positions **exceed** the stated
+> maximum Settlement Value of the Contract."
+
+`long + short <= $1` is satisfied by `$0.40 + $0.40` and by `$0 + $0`.
+Conservation needs an equality or a residual definition; a cap is neither.
+Rule 5.2(f) makes determinations final and unappealable, and 5.2(a) permits the
+Exchange to "reverse, amend, or resettle a settlement" after the fact.
+
+`COMPLEMENT_CONSERVATION_NOT_PROVEN` — **not** DISPROVEN: a cap permits a
+shortfall without authorising one (A-64). No further ProphetX research is
+warranted unless a product-specific rule is proven to override Rule 5.2 for
+every reachable terminal state.
+
 
 ## Sources
 
@@ -2021,3 +2167,14 @@ independently and no rule ties the two prices together, unlike ForecastEx Rule
 - https://docs.polymarket.us/ — REST `GET /v1/orderbook/{symbol}` and `/bbo`
   plus gRPC `MarketDataSubscriptionAPI`; market data documented as requiring
   Auth0 JWT with `read:marketdata` scope, so **not** documented as public
+- https://www.rothera.io/reg-notices — Rothera regulatory notices index, the
+  authoritative current list; retrieved 2026-09-29. DCM Rulebook 2026-05-20
+  sha256 `26084b165a930e1c…`; DCO Rulebook 2026-05-20 sha256 `7f644f206b98a79e…`;
+  Fee Schedule 2026-05-20 sha256 `23457e6e3bfa95f7…`; common-terms 40.6(a)
+  amendment 2026-06-17 sha256 `92580557c0ead57b…` (A-67, A-68, A-70)
+- Rothera Part 40 product certifications, 14 families read in full (Baseball,
+  Core PCE, Jobless Claims, Soccer Outcome/Spread/Totals, Football Outcome, Pro
+  Football Match/Spread/Totals/Playoffs, NBA Championship/Conference/Division);
+  per-family hashes in `src/predarb/venues/rothera/governing_sources.py` (A-69)
+- https://www.cftc.gov/sites/default/files/filings/documents/2025/orgdcmprophxexhibgm251205.pdf
+  — ProphetX DCM Exhibit M Rulebook v1.0, sha256 `178d04d7408b493c…` (A-71)
