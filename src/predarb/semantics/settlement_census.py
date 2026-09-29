@@ -75,6 +75,14 @@ class SettlementMechanism(StrEnum):
     INDETERMINATE_FALLBACK = "INDETERMINATE_FALLBACK"
     """A general rule governs when the Expiration Value cannot be determined."""
 
+    OFFSET_NETTING = "OFFSET_NETTING"
+    """A matched opposite-side pair is cancelled before resolution and credited.
+
+    A terminal mechanism in its own right, not a settlement variant: the pair
+    never reaches resolution, so the resolution rules never apply to it. Found on
+    ForecastEx, where holding both sides simultaneously is prohibited and an
+    offsetting pair is netted at a fixed amount."""
+
     @property
     def permits_fractional_payout(self) -> bool:
         """Whether this mechanism can pay something other than 0 or the notional.

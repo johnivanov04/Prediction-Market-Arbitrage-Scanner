@@ -1806,6 +1806,309 @@ which. The correct statement:
 `SettlementMechanism.establishes_complement_break` is `False` for every member,
 and `classify_family` takes `complement_proven` as an input it can never derive.
 
+### A-63 Polymarket US — the Rulebook specifies no product's payout
+
+*Phase 2C. Classification: DOCUMENTED.*
+
+The QCX LLC d/b/a Polymarket US DCM Rulebook, version 2026-08-05, sha256
+`5e3ba3880e63ffb1…`, 84 pages, extracted clean, defines the terminal outcome in
+Rule 1.1 and nowhere else:
+
+> "Contract Outcome" means the result of a Contract as determined in accordance
+> with the Contract Terms. If the Expiration Value satisfies the Payout
+> Condition, the Contract Outcome is $1.00, and the Settlement Amount is payable
+> to holders of long positions in the Contract. If the Expiration Value does not
+> satisfy the Payout Condition, the Contract Outcome is $0.00, and the Settlement
+> Amount is payable to holders of short positions in the Contract.
+
+Screened against the phase-1 failure modes the rulebook is clean: zero hits for
+"fair allocation", "last traded price", "fifty cents", "$0.50"; no rounding rule
+(all five "round" hits are *grounds* and *surrounding*); the only void/refund
+path is the bounded Rule 2.8(d)(iii) emergency "cancellation of a Contract and
+return of any funds paid to enter Trades on the Contracts".
+
+**That cleanliness is an artefact of scope, not a property of the venue.** Rule
+10.2 states that each Contract meets "such specifications … as set forth in the
+rules governing such Contract", and the rulebook supplies no payout arithmetic
+for any product. Every number a holder is paid lives in a Part 40 product
+certification. A venue screen run against a rulebook is therefore not a screen
+of the venue — recorded because this research made that error before catching
+it.
+
+### A-64 Polymarket US athletic contracts — a third terminal state, and a discretionary one
+
+*Phase 2C. Classification: DOCUMENTED.*
+
+Athletic Event Contracts, Rule 9.101, self-certified 2025-09-30 (listed no
+earlier than 2025-10-07), sha256 `50014b0f643953c8…`. The most recent athletic
+certification located; a later amendment may exist and was not found.
+
+Section D states both sides in both ordinary branches — $1.00/$0.00 and
+$0.00/$1.00 — which is the explicitness phase 1 could not obtain from Kalshi.
+It then adds a third:
+
+> If the Outcome is a tie …, then each long and short AEC position shall receive
+> fifty cents ($0.50).
+
+This **conserves** the notional exactly while **disproving** strict two-state
+binariness — the A-62 distinction, now with the opposite sign from
+`ENTITYOUTCOME`: there a fractional payout with an unknown complement, here a
+fractional payout with a known one.
+
+Section K, "Additional Settlement Conditions", supplies the blocker:
+
+> If an event is canceled prior to any Outcome determination, the Exchange, in
+> its sole and absolute discretion, resolve any remaining open positions in a
+> manner that it deems fair and appropriate, which may include a final settlement
+> based on last-traded prices, $0.50 per contract, or other fair and equitable
+> valuation. All such determinations by the Exchange shall be final and binding.
+
+"Last-traded prices" is one number, not a pair, and nothing says whether the
+short receives the residual; "other fair and equitable valuation" states no
+arithmetic. This is the substance of Kalshi Rule 6.3(c)(b), relocated from the
+rulebook to the product certification. Section B likewise makes the Underlying
+discretionary ("Notwithstanding the above, the Exchange may determine the
+Outcome in its sole and absolute discretion").
+
+**This establishes NOT_PROVEN, not DISPROVEN.** `NOT_COMPLEMENTARY` requires
+governing text permitting `long + short != notional`. Section K permits no such
+state; it declines to say how the two sides relate, and an unconstrained
+valuation could as easily be applied as a residual pair. No authorised shortfall
+exists at this venue: there is no combined-payout cap, no residual retained by
+the Exchange, and no aggregate-payout language anywhere in the Rulebook (its one
+"shall not exceed" is a Chapter 11 liability cap). The clause still blocks, and
+the mechanism is recorded `UNRESOLVED`.
+
+The general rule, which cost this research a wrong verdict twice — once as
+`COMPLEMENT_CONSERVATION_DISPROVEN` on Kalshi `ENTITYOUTCOME` (A-62) and once
+here:
+
+> Silence about how two payouts relate is not permission for them to miss the
+> notional. Absence of proof is NOT_PROVEN. DISPROVEN requires a text.
+
+Encoded in `predarb.venues.polymarket_us.settlement_findings`; the family's
+`ComplementConservationProof.status` is
+`APPLICABLE_GOVERNING_EVIDENCE_INCOMPLETE` — one step stricter than
+`COMPLEMENT_CONSERVATION_NOT_PROVEN`, because mechanism closure is not
+established and the clearing version in force has not been read. Closing that
+gap alone yields `COMPLEMENT_CONSERVATION_NOT_PROVEN`.
+
+### A-65 Polymarket US Rule 1.5 — precedence scoped to "trading in", not settlement
+
+*Phase 2C. Classification: UNKNOWN — and it blocks.*
+
+> **1.5. Product Specifications and Contract Terms.** Notwithstanding any
+> provision of these Rules to the contrary, the Product Specifications with
+> respect to a particular Contract shall govern the applicability of these Rules
+> to trading in such Contract and, in the event of any conflict between these
+> Rules and the Product Specifications, the Product Specifications shall govern
+> with respect to trading in the relevant Contract. In the event of any conflict
+> between the Product Specifications and the Contract Terms, the Contract Terms
+> shall govern with respect to trading in the relevant Contract.
+
+The opener is as strong as precedence language gets. The operative scope is
+stated three times as *trading in* the Contract, and settlement is not trading.
+Two readings follow, and no located interpretation, FAQ or advisory reconciles
+them:
+
+* **A — product terms govern settlement.** Sections D and K are titled
+  "Settlement" and "Additional Settlement Conditions", and on reading B the
+  venue would have no stated payout for a tie at all. A tied event pays both
+  sides $0.50.
+* **B — the Rules' Contract Outcome governs settlement.** It is exhaustive on
+  its face over the Payout Condition's two truth values, and it is a Rule. A tie
+  is not a third truth value of a predicate, so a tied event is a Payout
+  Condition not satisfied, and the short receives $1.00.
+
+Recorded as `ControlFinding.UNRESOLVED` →
+`PrecedenceStatus.PRECEDENCE_UNRESOLVED`, which fails closed. Structurally this
+is the Kalshi Rule 7.1 vs. 6.3(c) problem with the documents swapped: there, two
+rules in one book; here, a book and a certification separated by a precedence
+clause whose scope does not quite reach the question.
+
+### A-66 Polymarket US combinatorial contracts — an explicit AND over legs that are not binary
+
+*Phase 2C. Classification: DOCUMENTED (the relation); UNKNOWN (its legs).*
+
+Combinatoric Athletic Outcome Contract, self-certified 2026-05-20, sha256
+`94a0b293e5e57359…`, listed no earlier than 2026-05-21. Notional $1.00, tick
+$0.001–$0.01, margin 100% of at-risk. The Underlying is "the joint Settlement
+Amount of two or more underlying Contracts". Payout Condition:
+
+> **Joint Probability:** Every outcome must be satisfied for the Contract to
+> resolve to $1.00. The Contract resolves to $1.00 if and only if every leg is
+> satisfied. If any single leg is not satisfied, the Contract resolves to $0.00,
+> regardless of the outcomes of any remaining unsettled legs.
+
+This is the only unambiguous logical AND located at any venue in phases 1 and 2,
+and it is stated as a biconditional, so it yields relations with no correlation
+assumption and no price assumption:
+
+* long the combination against a short in every leg is **AT_LEAST_ONE** — the
+  all-satisfied state pays the combination, any single failure pays that leg's
+  short, and no state pays nothing;
+* the combination **implies** each leg (`NESTED_IMPLICATION`), one per leg.
+
+Both are exposed to the same defect. CAOC models its constituents as settling
+"$1.00/$0.00", but per A-64 an athletic leg has a $0.50 tie state. With one leg
+tied and the other satisfied the combination pays $0.00, the tied leg's short
+pays $0.50 and the satisfied leg's short pays nothing: the basket's worst case
+is **half the notional**, not the notional. Verified by exhaustive enumeration
+over all 3ⁿ assignments in `tests/unit/test_polymarket_us_qualification.py`.
+
+The alternative reading — that a tie is a state the Payout Condition does not
+address — is not better; it leaves the combination with no stated outcome.
+Verdict `RELATION_SEMANTICS_UNRESOLVED`: the relation is real and is *not*
+foreclosed by venue algebra (Rule 9.101(F) bounds each side to $0.001–$0.999
+independently and no rule ties the two prices together, unlike ForecastEx Rule
+401(d)). What blocks is which document governs the legs.
+
+### A-67 Rothera — the residual construction, stated outright
+
+*Phase 2D. Classification: DOCUMENTED.*
+
+Rothera Exchange and Clearing LLC (formerly LedgerX, then MIAXdx; a Robinhood
+and Susquehanna joint venture) is a DCM and DCO. Current DCM Rulebook
+2026-05-20, sha256 `26084b165a930e1c…`, 105 pages clean; DCO Rulebook
+2026-05-20, sha256 `7f644f206b98a79e…`, 101 pages clean.
+
+All fourteen product certifications read carry this clause:
+
+> "the Contract will resolve based on the last fair market price as determined
+> by the Exchange pursuant to Rothera DCM Rule 7.2. **Long position holders will
+> receive the number of Contracts held multiplied by the fair market price, and
+> short position holders will receive the number of Contracts held multiplied by
+> $1 minus the fair market price.**"
+
+This is the construction phases 1, 2A and 2C could not obtain anywhere. The
+short is **defined as the residual of the long**, so `long + short = $1.00` for
+every value of `p`, at every precision, with no rounding rule needed — there is
+no second quantity to round. `RoundingModel.RESIDUAL`.
+
+It settles a question this project had been treating as one:
+
+> Discretion over a **price**, with the short defined as the residual, conserves
+> always. Discretion over **two independent payouts** does not. An exchange
+> having "settlement discretion" says nothing until you know which kind.
+
+Ordinary settlement is equally explicit — both sides named in both branches,
+with the losing side's zero written down. Settlement Value $1.00, tick $0.01.
+
+### A-68 Rothera Rule 7.2 — a citation that does not confer what is claimed
+
+*Phase 2D. Classification: DOCUMENTED (the defect); UNKNOWN (the procedure).*
+
+Every fair-market clause attributes the price determination to "Rothera DCM Rule
+7.2", and the certifications add "Consistent with DCM Rule 7.2, Rothera reserves
+the right to make settlement determinations."
+
+**Rule 7.2 is titled "Procedures."** It authorises the Company DCM to adopt
+procedures relating to trading on the Platform: determining the *daily*
+settlement price, disseminating prices, recordkeeping, surveillance, order-size
+limits, position limits, and daily price fluctuation limits. It confers no
+final-settlement authority, never mentions a fair market price, and reserves
+nothing. The rulebook's only definition of a fair market price is in the Error
+Trade Policy, for applying No Cancellation Ranges.
+
+**This does not break conservation**, and concluding otherwise would repeat the
+A-64 error. The residual formula is in the product terms and holds for every
+`p`, whatever Rule 7.2 authorises. What it breaks is the *procedure for choosing
+`p`*: Rule 7.2(B) makes any adopted procedure a separate Website-published
+document, which was not located — an open dependency with `UNKNOWN` closure.
+
+The general rule, third statement of it in this project:
+
+> A broken citation invalidates what depends on the cited rule, and nothing
+> else. Identify what actually rests on it before concluding anything.
+
+Neither Rothera rulebook defines the vocabulary the products use: the DCM
+rulebook has **zero** occurrences of "Event Contract", "Expiration Value",
+"Settlement Value", "Payment Criterion", "final settlement" or "long position".
+
+### A-69 Within-contract conservation does not give an across-contract floor
+
+*Phase 2D. Classification: PROVEN (by exhaustive enumeration).*
+
+The phase-2D result, and the reason `predarb.semantics.payout_relation` exists.
+
+Rothera soccer states a genuine three-way partition over regulation-time goals:
+a winner "scored more goals (a strictly greater number) … at the conclusion of
+regulation time (90 minutes plus stoppage time only)", and a separate "tie"
+iteration requires "an equal number of goals (including 0-0 draws)". Mutually
+exclusive and exhaustive over one number. `EXACTLY_ONE`, proven from text.
+
+Buy all three legs; ordinary settlement pays exactly one notional. Then the
+match is abandoned, and **each contract settles at its own fair market price**:
+
+    basket return = p_home + p_away + p_tie
+
+Nothing requires those to sum to a dollar. Every contract still conserves
+perfectly — long plus short is one notional, exactly — while the sum across
+members is three independent discretionary determinations. **Guaranteed floor
+$0.00, not $1.00.**
+
+    Per-contract conservation and a zero basket floor are consistent.
+    At Rothera both hold.
+
+This is the ForecastEx phase-2B failure by a different route. A YES/NO relation
+model cannot express it, because in that state no contract is YES or NO and both
+sides are paid — which is why relations are now modelled over **payout states**:
+`SettlementRegime` (BINARY_OUTCOME / RESIDUAL_PRICE / INDEPENDENT_PAYOUTS) and
+`PriceCoupling` (COUPLED_TO_NOTIONAL / INDEPENDENT / UNKNOWN) are separate axes,
+and `PartitionBasket.guaranteed_floor` is the minimum over reachable regimes.
+
+A control test confirms the machinery is not returning zero for everything:
+coupling the prices restores the floor to $1.00.
+
+### A-70 Rothera fee schedule — quadratic, half-up, no settlement fee
+
+*Phase 2D. Classification: DOCUMENTED.*
+
+Fee Schedule effective 2026-05-20, sha256 `23457e6e3bfa95f7…`. Charged to
+**both** buyer and seller of every trade:
+
+    Order fees = MAX(round(k x p x (1 - p) x c, 2), 0.01)    round half up
+
+with k = 0.02 (FCM retail customer), 0.03 (market maker), 0.12 (FCM professional
+trading firm). No maker/taker split, no rebates, **no settlement or clearing
+fee**, and no language altering the contractual payout — fees are account
+debits, so they add to basket cost and never reduce what a contract pays.
+
+Two details that matter. The rounding is **half up**, not banker's — Polymarket
+US uses banker's (A-64 sources), so a fee model shared between venues would be
+wrong at every half cent. And `p(1-p)` vanishes at the extremes, so a partition
+basket's legs are cheapest exactly where they mostly sit, while the $0.01 floor
+dominates for small orders.
+
+Implemented in `predarb.venues.rothera.fees`, `Decimal` throughout, validated
+against the schedule's own worked example (k=0.06, 100 contracts at $0.35 →
+$1.37).
+
+### A-71 ProphetX Rule 5.2 — a ceiling is not a complement
+
+*Phase 2D. Classification: DOCUMENTED. Screen closed.*
+
+ProphetX DCM Exhibit M Rulebook, Document Version 1.0, filed 2025-12-05, sha256
+`178d04d7408b493c…`, 54 pages clean.
+
+Rule 5.2(c) gives the Exchange sole discretion over the Settlement Value and, on
+a broadly-defined Settlement Disruption, five remedies including the last traded
+price, voiding contracts, and "such other action as it deems appropriate". The
+only constraint on the pair is 5.2(d):
+
+> "In no case shall the combined payout across positions **exceed** the stated
+> maximum Settlement Value of the Contract."
+
+`long + short <= $1` is satisfied by `$0.40 + $0.40` and by `$0 + $0`.
+Conservation needs an equality or a residual definition; a cap is neither.
+Rule 5.2(f) makes determinations final and unappealable, and 5.2(a) permits the
+Exchange to "reverse, amend, or resettle a settlement" after the fact.
+
+`COMPLEMENT_CONSERVATION_NOT_PROVEN` — **not** DISPROVEN: a cap permits a
+shortfall without authorising one (A-64). No further ProphetX research is
+warranted unless a product-specific rule is proven to override Rule 5.2 for
+every reachable terminal state.
+
 
 ## Sources
 
@@ -1848,3 +2151,30 @@ and `classify_family` takes `complement_proven` as an input it can never derive.
 - https://assets.kalshi.com/contract_terms/ — per-series contract terms (PDF)
 - https://assets.kalshi.com/regulatory/product-certifications/ — product
   certifications (PDF)
+- https://polymarketexchange.com/files/legal/ — Polymarket US DCM Rulebook
+  2026-08-05, sha256 `5e3ba3880e63ffb1…` (A-63, A-65)
+- https://www.cftc.gov/filings/orgrules/rules12312536031.pdf — QC Clearing LLC
+  Clearing Rulebook 2025-12-31, sha256 `a5a91041b08f8e1e…`; four months older
+  than the DCM rulebook that cites it, so the clearing dependency is recorded
+  with `DependencyClosure.UNKNOWN`
+- https://www.cftc.gov/filings/ptc/ — QCX LLC product certifications: Athletic
+  Event Contracts 2025-09-30, sha256 `50014b0f643953c8…` (A-64); Combinatoric
+  Athletic Outcome Contract `ptc0520263802`, sha256 `94a0b293e5e57359…` (A-66)
+- https://docs.polymarket.us/fees — taker `Fee = 0.0695 x C x p x (1-p)`, maker
+  rebate `-0.0125`, combinatorial taker
+  `Fee = C x p x [0.0695 x (1-p) + 0.04 x (1-p)^4]`; banker's rounding to
+  $0.01; charged to balance at execution, not netted out of settlement
+- https://docs.polymarket.us/ — REST `GET /v1/orderbook/{symbol}` and `/bbo`
+  plus gRPC `MarketDataSubscriptionAPI`; market data documented as requiring
+  Auth0 JWT with `read:marketdata` scope, so **not** documented as public
+- https://www.rothera.io/reg-notices — Rothera regulatory notices index, the
+  authoritative current list; retrieved 2026-09-29. DCM Rulebook 2026-05-20
+  sha256 `26084b165a930e1c…`; DCO Rulebook 2026-05-20 sha256 `7f644f206b98a79e…`;
+  Fee Schedule 2026-05-20 sha256 `23457e6e3bfa95f7…`; common-terms 40.6(a)
+  amendment 2026-06-17 sha256 `92580557c0ead57b…` (A-67, A-68, A-70)
+- Rothera Part 40 product certifications, 14 families read in full (Baseball,
+  Core PCE, Jobless Claims, Soccer Outcome/Spread/Totals, Football Outcome, Pro
+  Football Match/Spread/Totals/Playoffs, NBA Championship/Conference/Division);
+  per-family hashes in `src/predarb/venues/rothera/governing_sources.py` (A-69)
+- https://www.cftc.gov/sites/default/files/filings/documents/2025/orgdcmprophxexhibgm251205.pdf
+  — ProphetX DCM Exhibit M Rulebook v1.0, sha256 `178d04d7408b493c…` (A-71)
