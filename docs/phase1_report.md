@@ -1,10 +1,18 @@
 # Phase 1 acceptance report — Kalshi prediction-market arbitrage research
 
-**Status: IMPLEMENTATION_COMPLETE, LIVE_SEMANTIC_VALIDATION_PENDING.**
-No executable arbitrage has been demonstrated, and none was required. No real
-Kalshi settlement certificate has been human-approved, so the detector
-economics have never run past the semantic gate on live data. Both facts are
-reported as results, not as pending work.
+**Status: IMPLEMENTATION_COMPLETE, SEMANTIC_LIVE_EXECUTION_BLOCKED_BY_VENUE_GOVERNANCE.**
+
+Phase 1 is frozen with one acceptance criterion unmet, and the criterion is left
+standing rather than rewritten (§28). No executable arbitrage has been
+demonstrated, and none was required. No Kalshi settlement certificate has been
+issued — not because nobody got round to it, but because the exchange's own
+governing text does not establish what a contract pays in every permitted
+terminal state. Across 36 active product families, none is strictly two-state
+under the full framework, and complement conservation cannot be proven even for
+the cleanest contract on the exchange.
+
+That is a finding about the venue, not a defect in the build. It is reported as
+a result, not as pending work.
 
 Evidence classifications used throughout: **DOCUMENTED** (stated in current
 official Kalshi documentation), **OBSERVED** (measured live, with counts),
@@ -551,10 +559,12 @@ not been shown is that any *real* market's contract supports one.
 
 ## 26. Readiness
 
-See the status matrix in §27 and the freeze proposal below. The implementation
-is complete and deterministically tested; the live *semantic* path is
-unexercised because no certificate exists, and that distinction is not hidden
-behind an overall green label.
+Phase 1 is **frozen** with one acceptance criterion unmet, and the criterion is
+left standing rather than rewritten. Every mechanical guarantee the phase set
+out to establish holds and is tested. What is not shown is that any real Kalshi
+market's contract supports a settlement certificate — and after the
+investigation in §22a, §30 and §31, that is a finding about the venue's
+governing text, not a gap in the build.
 
 ## 27. Status matrix
 
@@ -563,7 +573,7 @@ overall green label.
 
 | Dimension | Status |
 | --- | --- |
-| IMPLEMENTATION | **COMPLETE** |
+| PHASE_1_IMPLEMENTATION | **COMPLETE** |
 | DETERMINISTIC_TESTING | **PASS** |
 | LIVE_TRANSPORT_VALIDATION | **PASS** |
 | LIVE_BOOK_VALIDATION | **PASS** |
@@ -571,60 +581,180 @@ overall green label.
 | DURABLE_STORAGE | **PASS** |
 | FAILURE_INJECTION | **PASS** |
 | SECURITY_SCAN | **PASS** |
-| LIVE_INDIVIDUAL_SEMANTIC_PATH | **NOT_YET_EXERCISED** |
-| LIVE_RELATION_SEMANTIC_PATH | **NOT_YET_EXERCISED** |
-| REAL_DETECTOR_EXECUTION | **NOT_YET_EXERCISED** |
-| 24H_SOAK | **NOT_YET_RUN** (45 minutes completed) |
+| LIVE_SEMANTIC_DETECTOR_EXECUTION | **BLOCKED_BY_VENUE_GOVERNANCE** |
+| LIVE_CERTIFIED_SETTLEMENT_PATH | **NOT_EXERCISED** |
+| LIVE_RELATION_SEMANTIC_PATH | **NOT_EXERCISED** |
+| 24H_CERTIFIED_SOAK | **NOT_RUN_BECAUSE_NO_CERTIFIABLE_LIVE_SEMANTIC_PATH** |
+| REAL_ARBITRAGE_OBSERVED | **NONE** |
 | TRADING | **NOT_IN_SCOPE** |
 
-**Overall: IMPLEMENTATION_COMPLETE, LIVE_SEMANTIC_VALIDATION_PENDING.**
+**Overall: IMPLEMENTATION_COMPLETE, SEMANTIC_LIVE_EXECUTION_BLOCKED_BY_VENUE_GOVERNANCE.**
 
-Every mechanical guarantee Phase 1 set out to establish holds and is tested. The
-one thing not shown is that any *real* Kalshi market's contract supports a
-settlement certificate — and that is a human judgement nobody has made yet, not
-a defect in the system. Four candidates are queued for that decision.
+## 28. The unmet acceptance criterion
 
-## 28. Proposed Phase-1 freeze
+The original criterion is reproduced here unchanged, because deleting it would
+make the freeze look cleaner than it is:
 
-**Blocked.** Not merged, not tagged, and not proposed for freeze: the
-acceptance pass found that evidence completeness was computed wrongly for every
-market queued for review (§22a). The 24-hour soak has not been started, and no
-certificate has been approved.
+> **real `detector_did_run=true` on a certified live market**
 
 | | |
 | --- | --- |
-| freeze candidate | the Step-13 working tree on `phase-1`, on top of `c543af3` |
-| catalogue schema | `phase1-catalogue/1` |
-| replay bundle schema | `replay-bundle/1` |
-| decision fingerprint | `economic-decision/1` |
-| settlement evidence | `settlement-evidence/1` |
-| relation evidence | `relation-evidence/1` |
-| AT_LEAST_ONE policy | `at-least-one-evidence/1` |
-| membership evidence | `venue-membership-evidence/1` |
-| strike partition | `strike-partition/1` |
-| domain constraint | `domain-constraint/1` |
-| detectors | binary complement, AT_MOST_ONE NO basket, AT_LEAST_ONE YES basket |
-| derived proofs | EXACTLY_ONE (composed, not stored) |
+| **STATUS** | **UNMET — EXTERNALLY BLOCKED** |
+| **RATIONALE** | No settlement certificate can currently be issued without asserting semantics that the governing evidence does not establish. |
 
-**Outstanding semantic-validation limitations**: no human-approved settlement
-certificate; no relation certificate; the one live AT_LEAST_ONE request has an
-undischarged domain condition; and all 6 stored review requests are
-`EVIDENCE_INCOMPLETE` under the corrected policy, pending reviewer declarations
-of what their contract PDFs incorporate. See §22, §22a and §24.
+Phase 1 therefore freezes with one criterion unmet. That is intentional and was
+not waived silently; whether to waive the empirical criterion is a decision
+still open.
 
-**Phase-2 prerequisites**: §29.
+### Why it is blocked — the causal chain
 
-## 29. Phase-2 entry criteria
+Each link was read from the document named, at a recorded hash.
+
+**A. Ordinary binary settlement is provable** for the best candidate,
+`KXRIEMANNRES-40-27JAN01`, from its own product filing
+(`CONJECTURE.pdf`, sha256 `0ae7c3b2638d13c9…`), which states both branches
+including the losing side's zero:
+
+| Market Outcome | long / YES | short / NO |
+| --- | --- | --- |
+| YES | N | 0 |
+| NO | 0 | N |
+
+**B.** Rule 7.1 determines a **Market Outcome**, not a payout. It contains no
+instance of "payout", "amount", "Settlement Value" or "price", and the Outcome
+Review Committee is defined as existing "to determine Market Outcomes in
+accordance with Chapter 7".
+
+**C.** For this Binary Contract the Market Outcome is constrained to YES or NO —
+the definition is binary "unless otherwise specified in the contract terms", and
+these terms do not specify otherwise.
+
+**D.** But the governing text does **not** establish whether the modern
+product-specific Rule 7.1 contingency displaces, or coexists with, the
+independently triggered Rule 6.3(c). Rule 6.3(a) lets product terms control yet
+is silent about 6.3(c); Rule 6.3(c) has its own epistemic trigger with no
+carve-out; no general precedence rule is enacted anywhere; and the Rulebook
+assigns the same committee two different mandates (Market Outcomes in Chapter 1,
+"fair allocation" in 6.3(c)(b)) without saying which yields.
+
+**E.** Rule 6.3(c)(b) permits a binding "fair allocation" and never defines an
+invariant establishing `YES payout + NO payout = N`. The word is undefined and
+the sentence never says what is allocated.
+
+**F.** No governing document specifies a settlement rounding model — not the
+Exchange Rulebook, not the Klear DCO Rulebook. Searched both for "round",
+"nearest cent", "precision", "decimal", "truncat" and "fraction of a cent".
+
+So neither `STANDARD_BINARY_COMPLEMENT` nor a generalised
+`PROVEN_COMPLEMENTARY_SETTLEMENT` can be issued rigorously.
+**The blocker is governing semantic ambiguity, not missing implementation.**
+
+### A distinction that matters
+
+We have **not** proven `YES + NO != N`. Nothing found in the governing text
+permits a shortfall; the text is *silent*, which is weaker and different.
+
+The correct status is **`COMPLEMENT_CONSERVATION_NOT_PROVEN`**, never
+`COMPLEMENT_CONSERVATION_DISPROVEN`.
+
+## 29. Negative results worth keeping
+
+These cost real work and are the substance of the phase's semantic findings.
+
+**Strict two-state census** — 36 active product families with live books,
+spanning macroeconomic releases, weather and climate, science and technology,
+space, sports, entertainment, demographics and institutional succession.
+**0 families were `STRICT_TWO_STATE_POTENTIALLY_PROVABLE`** under the full
+governing framework. 0 attempt to exclude the general fallback.
+
+**Best modern test case — `KXRIEMANNRES-40-27JAN01`**: non-natural-person
+underlying, so Rule 6.3(e) is unreachable; evidence COMPLETE; ordinary binary
+branch explicitly proven from its own filing; no product-specific alternate
+mechanism at all — no tie split, no last-fair-price clause, no void or refund,
+no cancellation-to-last-results. Still blocked, by the Rule 7.1 / Rule 6.3(c)
+precedence ambiguity. Complement conservation not proven. If the cleanest
+contract on the exchange does not clear, the obstacle is not the contract.
+
+**BOND** — historical references resolved. `Rule 6.3(b)` was exact under
+Rulebook v1.14 at certification and traces to 6.3(c) today; `6.3(d)` traces to
+6.3(f); every hop carries a filed amendment. Complement not proven.
+
+**CRIMECHARGE** — references broken/ambiguous at issuance. Certified 2025-07-24,
+nearly five months after the scalar amendment had already made 6.3(b) the Scalar
+Contract rule. Applicable payout rule unresolved, and not repairable by
+borrowing BOND's pre-amendment lineage.
+
+**NFL `ENTITYOUTCOME` families** — evidence COMPLETE. Strict two-state
+**disproven** by their own fractional and alternate settlement language ("a
+Settlement Value equal to $1/N, rounded down"; "the last fair price as
+determined in the sole discretion of the Exchange"). Complement conservation not
+proven.
+
+## 30. Reopen conditions
+
+Settlement-certification research should be reopened **only** if one of these
+occurs. An ordinary-looking market appearing is not one of them.
+
+1. Kalshi or the CFTC publishes authoritative guidance establishing the
+   precedence between product-specific Rule 7.1 contingencies and Rule 6.3(c).
+2. Market Outcome Review guidance becomes public and resolves the interaction.
+   No standalone guidelines document was located in the CFTC filing record.
+3. Governing text explicitly defines "fair allocation" as a partition of one
+   fixed Settlement Value between long and short.
+4. Governing text establishes settlement rounding and residual mechanics
+   strongly enough to prove an exact payout invariant.
+5. Kalshi lists a product whose terms explicitly exclude the general fallback
+   and provide exhaustive binary settlement mechanics.
+
+The cheapest of these to watch is (1): if Rule 7.1 were established as
+displacing 6.3(c) for these templates, the mechanisms collapse into 6.3(a), p is
+confined to {0, N}, and the rounding blocker falls away with them.
+
+## 31. Final technical inventory
+
+**PASS — proven and tested**
+
+fixed-point exact arithmetic · sequence-safe orderbook reconstruction ·
+executable depth model · fee bounds · payoff engine · semantic evidence capture ·
+document dependency closure · historical reference lineage · claim-scoped
+materiality · cycle-safe dependency graph · bitemporal replay and no-lookahead ·
+live/replay decision equivalence · durable storage · crash recovery · failure
+injection · security scanning · real Kalshi REST and WebSocket transport · live
+orderbook formation
+
+**BLOCKED / NOT EXERCISED**
+
+issuance of a real live settlement certificate · `detector_did_run=true` under
+certified semantics · certified-market 24-hour soak · observation of a real
+positive arbitrage opportunity
+
+**NOT IN SCOPE**
+
+order placement · execution · balances and positions · automated trading
+
+## 32. Phase-2 entry criteria
+
+These were written assuming the live semantic path would eventually open on
+Kalshi. It has not, and §28 explains why. They are kept for the record, with
+their status now noted.
 
 1. At least one human-approved settlement certificate, with the binary
-   complement detector observed running on that live market — any classification.
-   This now requires the incorporated Rulebook provisions to be read and the
-   numbering mismatch (A-56) resolved, not merely the contract terms fetched.
+   complement detector observed running on that live market — any
+   classification. **Externally blocked**; see §28 and the reopen conditions in
+   §30.
 2. A relation path exercised end to end, or an explicit statement that no
-   straightforward relation can be safely certified.
-3. A longer soak (≥ 24h) with zero unexplained replay mismatches.
-4. A-14 resolved, or an explicit decision to keep operating on bounds.
-5. Phase-1 freeze reviewed and accepted.
+   straightforward relation can be safely certified. **Not exercised**; the
+   same governing ambiguity reaches relation claims, which depend on the same
+   per-market payout semantics.
+3. A longer soak (≥ 24h) with zero unexplained replay mismatches. **Not run**,
+   because there is no certifiable live semantic path to soak. The 45-minute
+   soak that was run is reported in §18.
+4. A-14 resolved, or an explicit decision to keep operating on bounds. **Still
+   open**; the fee engine continues to operate on proven bounds.
+5. Phase-1 freeze reviewed and accepted. **This document is that freeze.**
 
-Phase 2 should not begin while the live semantic path is unexercised: a second
-venue would multiply an untested gate rather than validate it.
+Criterion 1 is the one that matters, and it cannot be met on Kalshi under the
+current Rulebook. That reframes the Phase-2 question: the choice is between
+accepting Phase 1 with the empirical criterion waived, changing the acceptance
+criteria deliberately, or evaluating a venue whose governing text does define
+terminal payouts exhaustively. That decision is open and is not made here.
