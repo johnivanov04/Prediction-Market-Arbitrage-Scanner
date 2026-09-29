@@ -28,6 +28,14 @@ from predarb.semantics.payout_relation import (
     basket_cost_symbol,
     residual_pair_conserves,
 )
+from predarb.semantics.settlement_census import SettlementMechanism
+from predarb.semantics.venue_intervention import (
+    IN_SCOPE_MECHANISMS,
+    ConservationScope,
+    InterventionScope,
+    ResidualVenueInterventionRisk,
+    classify_intervention,
+)
 from predarb.venues.prophetx.screen_findings import (
     PROPHETX_PROOF,
     SETTLEMENT_DISCRETION,
@@ -63,12 +71,13 @@ from predarb.venues.rothera.relation_findings import (
 )
 from predarb.venues.rothera.settlement_findings import (
     BASEBALL_PROOF,
-    EMERGENCY_ALTERATION,
+    EMERGENCY_INTERVENTION,
     FAIR_MARKET_RESIDUAL,
     MIN_TICK,
     NOTIONAL,
     ORDINARY,
     RULE_72_CITATION_NOTE,
+    SETTLEMENT_DETERMINATION_RESERVATION,
     SOCCER_PROOF,
     UNSPLIT_FAIR_MARKET,
 )
@@ -175,24 +184,132 @@ class TestPathsThatOmitTheSplit:
         assert "inference" in UNSPLIT_FAIR_MARKET.reasoning
 
 
-class TestEmergencyPower:
-    """Unbounded, universal, and recorded rather than excused."""
+class TestEmergencyPowerIsDisclosedNotProvenAgainst:
+    """Rule 1.11 leaves the semantic proof and stays in the report."""
 
-    def test_it_blocks(self):
-        assert EMERGENCY_ALTERATION.status is MechanismStatus.UNRESOLVED
-        assert EMERGENCY_ALTERATION.blocks
+    def test_it_is_not_a_settlement_mechanism(self):
+        """The type system already forbids a residual risk appearing among the
+        mechanisms, so the check that carries weight is that no mechanism cites
+        the rule either -- it left the census rather than being renamed."""
+        for proof in (BASEBALL_PROOF, SOCCER_PROOF):
+            assert EMERGENCY_INTERVENTION in proof.residual_interventions
+            assert not [m for m in proof.mechanisms if "1.11" in m.rule_reference]
 
-    def test_fixing_a_price_is_distinguished_from_altering_the_terms(self):
-        assert "fixing the settlement price" in EMERGENCY_ALTERATION.quoted_text
-        assert "altering the settlement terms" in EMERGENCY_ALTERATION.quoted_text
-        assert "harmless discretion" in EMERGENCY_ALTERATION.reasoning
+    def test_it_reaches_the_venue_and_the_rules_rather_than_a_contract(self):
+        joined = " | ".join(EMERGENCY_INTERVENTION.powers)
+        assert "suspend or curtail trading venue-wide" in joined
+        assert "modify or suspend any provision of the Rules" in joined
 
-    def test_it_reaches_the_rules_themselves(self):
-        assert "modify or suspend any provisions of the Rules" in (EMERGENCY_ALTERATION.quoted_text)
+    def test_the_rationale_is_recorded_not_assumed(self):
+        assert "no regulated venue can" in EMERGENCY_INTERVENTION.rationale
+
+    def test_its_approval_gate_is_recorded(self):
+        assert "Regulatory Oversight Committee" in EMERGENCY_INTERVENTION.approval_gate
+
+    def test_the_disclosure_refuses_the_words_risk_free(self):
+        disclosure = EMERGENCY_INTERVENTION.disclosure()
+        assert "RESIDUAL_VENUE_INTERVENTION_RISK" in disclosure
+        assert "may be described as risk-free" in disclosure
+
+    def test_every_family_carries_the_disclosure_in_its_description(self):
+        for proof in (BASEBALL_PROOF, SOCCER_PROOF):
+            assert "RESIDUAL_VENUE_INTERVENTION_RISK" in proof.describe()
+
+    def test_the_payload_carries_it_too(self):
+        payload = SOCCER_PROOF.payload()
+        assert len(payload["residual_interventions"]) == 1
+        assert payload["conservation_scope"] == ConservationScope.NOT_ESTABLISHED.value
+
+    def test_an_exclusion_must_quote_its_authority(self):
+        with pytest.raises(ValueError, match="must quote the authority"):
+            ResidualVenueInterventionRisk(
+                venue="v", rule_reference="r", quoted_text="", powers=("p",), rationale="x"
+            )
+
+    def test_an_exclusion_must_name_the_powers(self):
+        with pytest.raises(ValueError, match="name the powers"):
+            ResidualVenueInterventionRisk(
+                venue="v", rule_reference="r", quoted_text="t", powers=(), rationale="x"
+            )
+
+
+class TestTheExclusionIsNarrow:
+    """The loophole this closes: relabelling a product clause as an emergency."""
+
+    def test_every_census_mechanism_stays_inside_the_proof(self):
+        for mechanism in SettlementMechanism:
+            assert mechanism in IN_SCOPE_MECHANISMS, mechanism
+
+    @pytest.mark.parametrize(
+        "mechanism",
+        [
+            SettlementMechanism.CANCELLATION_LAST_RESULTS,
+            SettlementMechanism.LAST_FAIR_PRICE,
+            SettlementMechanism.TIE_SPLIT,
+            SettlementMechanism.OUTCOME_REVIEW,
+            SettlementMechanism.INDETERMINATE_FALLBACK,
+            SettlementMechanism.VOID_REFUND,
+        ],
+    )
+    def test_a_settlement_clause_cannot_be_excluded_however_labelled(self, mechanism):
+        """Even claimed venue-wide and claimed unreachable in ordinary life."""
+        scope = classify_intervention(
+            mechanism=mechanism, venue_wide=True, reachable_in_ordinary_resolution=False
+        )
+        assert scope is InterventionScope.ORDINARY_CONTRACT_RESOLUTION
+
+    def test_venue_authority_that_is_not_a_settlement_path_may_be_excluded(self):
+        scope = classify_intervention(
+            mechanism=None, venue_wide=True, reachable_in_ordinary_resolution=False
+        )
+        assert scope is InterventionScope.EXTRAORDINARY_VENUE_INTERVENTION
+
+    def test_reachability_in_ordinary_resolution_keeps_it_in(self):
+        scope = classify_intervention(
+            mechanism=None, venue_wide=True, reachable_in_ordinary_resolution=True
+        )
+        assert scope is InterventionScope.ORDINARY_CONTRACT_RESOLUTION
+
+    def test_a_power_that_is_not_venue_wide_stays_in(self):
+        scope = classify_intervention(
+            mechanism=None, venue_wide=False, reachable_in_ordinary_resolution=False
+        )
+        assert scope is InterventionScope.ORDINARY_CONTRACT_RESOLUTION
+
+
+class TestReservationOfSettlementDeterminations:
+    """What survives the scope correction, in all fourteen certifications."""
+
+    def test_it_blocks_and_is_ordinary_scope(self):
+        assert SETTLEMENT_DETERMINATION_RESERVATION.status is MechanismStatus.UNRESOLVED
+        assert SETTLEMENT_DETERMINATION_RESERVATION.blocks
+        assert SETTLEMENT_DETERMINATION_RESERVATION.mechanism in IN_SCOPE_MECHANISMS
+
+    def test_the_reservation_is_quoted(self):
+        assert "reserves the right to make settlement determinations" in (
+            SETTLEMENT_DETERMINATION_RESERVATION.quoted_text
+        )
+
+    def test_the_stated_remedy_is_a_delay(self):
+        assert "will be delayed" in SETTLEMENT_DETERMINATION_RESERVATION.quoted_text
+
+    def test_but_it_has_an_open_ended_escape(self):
+        assert "or as otherwise set forth" in (SETTLEMENT_DETERMINATION_RESERVATION.quoted_text)
+
+    def test_source_delay_is_an_ordinary_contingency(self):
+        assert "ordinary contingency" in SETTLEMENT_DETERMINATION_RESERVATION.reasoning
 
     def test_it_appears_in_every_family(self):
         for proof in (BASEBALL_PROOF, SOCCER_PROOF):
-            assert EMERGENCY_ALTERATION in proof.mechanisms
+            assert SETTLEMENT_DETERMINATION_RESERVATION in proof.mechanisms
+
+    def test_it_is_why_the_residual_does_not_carry_a_family_to_a_proof(self):
+        """The precise answer to the scope question: removing Rule 1.11 leaves
+        soccer with exactly one blocker, and it is not the residual."""
+        assert [m.mechanism for m in SOCCER_PROOF.blocking] == [
+            SETTLEMENT_DETERMINATION_RESERVATION.mechanism
+        ]
+        assert FAIR_MARKET_RESIDUAL.status is MechanismStatus.PROVEN_COMPLEMENTARY
 
 
 class TestFamilyVerdicts:
@@ -205,9 +322,14 @@ class TestFamilyVerdicts:
             assert proof.status is ProofStatus.EVIDENCE_INCOMPLETE
 
     def test_soccer_would_still_block_with_the_evidence_gap_closed(self):
-        """Because the emergency power remains unresolved."""
+        """Because the Contingencies reservation remains unresolved -- an
+        ordinary clause, not the excluded emergency authority."""
         closed = replace(SOCCER_PROOF, mechanism_closure_established=True)
         assert closed.status is ProofStatus.NOT_PROVEN
+
+    def test_no_family_reaches_a_conservation_scope(self):
+        for proof in (BASEBALL_PROOF, SOCCER_PROOF):
+            assert proof.conservation_scope is ConservationScope.NOT_ESTABLISHED
 
     def test_removing_every_unresolved_path_would_prove_it(self):
         """The control: the machinery does prove things when the text supports
@@ -218,6 +340,18 @@ class TestFamilyVerdicts:
             mechanism_closure_established=True,
         )
         assert clean.status is ProofStatus.PROVEN_FOR_SUBSET
+
+    def test_and_even_then_the_claim_is_qualified_not_risk_free(self):
+        """A proven family still carries the residual disclosure, and its scope
+        is 'under normal governing settlement' rather than unqualified."""
+        clean = replace(
+            SOCCER_PROOF,
+            mechanisms=(ORDINARY, FAIR_MARKET_RESIDUAL),
+            mechanism_closure_established=True,
+        )
+        assert clean.conservation_scope is ConservationScope.NORMAL_GOVERNING_SETTLEMENT
+        assert "extraordinary venue intervention" in clean.exact_bound()
+        assert "RESIDUAL_VENUE_INTERVENTION_RISK" in clean.describe()
 
     def test_every_source_is_pinned_by_hash(self):
         assert BASEBALL_PROOF.unpinned_sources == ()

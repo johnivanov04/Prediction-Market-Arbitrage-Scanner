@@ -143,22 +143,66 @@ That is an open `GoverningDocumentDependency` with `UNKNOWN` closure.
 | Can Source Agency / Underlying changes alter the payoff relation? | The Source Agency hierarchy is fixed in each certification; a change would be a Part 40 amendment. Not a settlement-time discretion. |
 | Is there a Contract Settlement Review Panel? | **No.** Rothera has no analogue of Kalshi's Market Outcome Review or Polymarket's Contract Outcome Review Process. Settlement determinations are made by the Exchange directly. |
 
-### Rule 1.11 Emergency Rules — the remaining unbounded power
+### Rule 1.11 Emergency Rules — excluded from the proof, disclosed beside it
 
 > "(3) provide alternative settlement mechanisms for any Contract (including by
 > **altering the settlement terms or conditions** or fixing the settlement
 > price) … (9) **modify or suspend any provisions of the Rules**"
 
-"Fixing the settlement price" is the harmless kind — it feeds the residual and
-conserves. "Altering the settlement terms" is not bounded, and (9) reaches the
-Rules themselves. Recorded `UNRESOLVED`, which blocks.
+**Scope decision (applied after the first draft of this report).** Broad
+exchange-wide emergency authority is *not* part of the ordinary contractual
+settlement proof. It is authority over the venue and over the Rules themselves,
+fired by a declared Emergency rather than by any contingency in a contract's own
+terms, and gated by CEO/President/CCO determination plus prior Regulatory
+Oversight Committee approval (Rules 1.11(B)–(D)).
 
-**This blocker is universal.** Every CFTC-regulated DCM carries an equivalent
-power, so a gate requiring *every* reachable mechanism to be
-`PROVEN_COMPLEMENTARY` — emergency powers included — can never be passed by any
-DCM. Flagged explicitly rather than quietly excluded: if emergency powers are
-meant to be out of scope, Rothera's single-contract result changes materially
-(see §7).
+The rationale is structural, not convenient: a proof that no sovereign,
+regulator or exchange will ever intervene is unobtainable on any regulated
+venue. Requiring it would reject every venue for a property none of them has,
+rather than discriminate between them — which is a different thing from proving
+what a contract pays when it resolves normally.
+
+Recorded as **`RESIDUAL_VENUE_INTERVENTION_RISK`**, carried on the proof object,
+printed by `describe()` and `payload()`, and reproduced in every report.
+Disclosed, never eliminated. No conclusion resting on it is described as
+risk-free; the strongest available claim is
+**`CONTRACTUALLY_GUARANTEED_UNDER_NORMAL_GOVERNING_SETTLEMENT`**.
+
+**The exclusion is narrow and machine-enforced.** `IN_SCOPE_MECHANISMS` contains
+the entire settlement census, and `classify_intervention` refuses to exclude any
+of it however it is labelled. Product cancellation, normal settlement
+discretion, fair-market-price settlement, tie/push, source failure, outcome
+review, scheduled contingencies and product-specific discretionary valuation all
+stay inside the proof. A venue does not get to reclassify a product settlement
+clause by filing it under an emergency heading — asserted by a parametrised
+test over six mechanisms, each claimed venue-wide and unreachable, each still
+held in scope.
+
+### What the exclusion changed, and what it did not
+
+Removing Rule 1.11 leaves soccer with **exactly one** blocking mechanism, and it
+is not the residual construction. It is this, present verbatim in **all
+fourteen** certifications:
+
+> **Contingencies** — "… the Settlement Date, Expiration Date and Expiration
+> Time will be delayed until the Underlying outcome or results are released **or
+> as otherwise set forth on the Exchange pursuant to DCM Rule 7.2. Consistent
+> with DCM Rule 7.2, Rothera reserves the right to make settlement
+> determinations.**"
+
+The stated remedy is a delay, which is a timing remedy and conserves. Two things
+escape it: "or as otherwise set forth" points somewhere unbounded, and "reserves
+the right to make settlement determinations" reserves a settlement power with no
+stated output — not a price, not a side, not a split.
+
+**Source delay is an ordinary contingency**, reachable in the normal life of
+every contract. It stays inside the proof and is not excluded with the emergency
+authority. `UNRESOLVED` — nothing authorises a shortfall, so not
+`NOT_COMPLEMENTARY`.
+
+This clause had been overlooked in the first pass of §6, which counted Rule 1.11
+as the emergency blocker and did not separately enumerate the Contingencies
+reservation. Correcting the scope surfaced it.
 
 ---
 
@@ -205,7 +249,8 @@ Outcome) exist but were out of scope per the brief.
 | Ordinary YES / ordinary NO | Contract Terms, "Trading and Settlement" | **PROVEN_COMPLEMENTARY** |
 | Fair-market price (residual stated) | cancellation / abandonment bullets | **PROVEN_COMPLEMENTARY** |
 | Fair-market price (split **not** stated) | Baseball DQ-before-first-pitch; Core PCE release cancelled entirely | UNRESOLVED |
-| Emergency alteration | DCM Rule 1.11(B)(3),(9) | UNRESOLVED |
+| **Reservation of settlement determinations** | Contract Terms, "Contingencies" — **all 14 families** | **UNRESOLVED** |
+| Emergency alteration | DCM Rule 1.11(B)(3),(9) | **excluded — `RESIDUAL_VENUE_INTERVENTION_RISK`** |
 | Tie / push | no tie state in baseball or pro football; soccer uses a **separate contract** | n/a |
 | Void / refund | **absent** | n/a |
 | Rounding | no rounding rule in either rulebook | not needed — see §8 |
@@ -230,8 +275,17 @@ would close it.
 
 ## 7. Single-market complement result
 
-**Per-mechanism:** every reachable mechanism is `PROVEN_COMPLEMENTARY` except
-the two unsplit fair-market paths and the emergency power.
+**Per-mechanism:** every ordinary mechanism is `PROVEN_COMPLEMENTARY` except the
+Contingencies reservation (all 14 families) and the two unsplit fair-market
+paths (baseball, Core PCE). Rule 1.11 is excluded from the proof and disclosed
+as residual venue intervention risk.
+
+**Does `p / (1−p)` become proven once emergency authority is out of scope?**
+**No — for no family.** The residual construction *itself* is
+`PROVEN_COMPLEMENTARY` and conserves at every price and every precision. What
+blocks is a separate open-ended reservation sitting beside it in every
+certification. Soccer, the cleanest family, has exactly one blocking mechanism
+after the correction; baseball has two.
 
 **Family verdict:** `APPLICABLE_GOVERNING_EVIDENCE_INCOMPLETE` — mechanism
 closure is not established, because Rule 7.2's Website-published procedures were
@@ -242,10 +296,15 @@ not located. Closing that gap alone yields
 authorises a terminal state where the two sides miss the notional — no
 combined-payout cap, no residual retention, no independent-payout clause.
 
-For calibration, a control test removes the two unresolved paths and the
-verdict becomes `COMPLEMENT_CONSERVATION_PROVEN_FOR_SUBSET`. **Rothera is two
-sentences away from a proof**, and neither sentence is about the residual
-formula itself.
+For calibration, a control test removes the unresolved paths and the verdict
+becomes `COMPLEMENT_CONSERVATION_PROVEN_FOR_SUBSET` — **and even then** its
+`conservation_scope` is `CONTRACTUALLY_GUARANTEED_UNDER_NORMAL_GOVERNING_SETTLEMENT`,
+its `exact_bound()` names the undisclosed-against intervention power, and its
+`describe()` still prints the residual-risk paragraph. The machinery cannot
+produce an unqualified guarantee.
+
+**Rothera is two sentences away from a proof**, and neither sentence is about
+the residual formula itself.
 
 ---
 
@@ -438,7 +497,7 @@ proven to override Rule 5.2 for every reachable terminal state. None was located
 | Requirement | Result |
 |---|---|
 | Governing evidence COMPLETE | **NO** — Rule 7.2's Website procedures not located; closure UNKNOWN |
-| Every single-contract mechanism PROVEN_COMPLEMENTARY | **NO** — two unsplit fair-market paths, plus the universal emergency power |
+| Every single-contract mechanism PROVEN_COMPLEMENTARY | **NO** — the Contingencies reservation in all 14 families, plus two unsplit fair-market paths. (Emergency authority excluded from the proof and disclosed as residual risk; excluding it did **not** change this answer.) |
 | Useful relation semantics PROVEN | **YES** — soccer `EXACTLY_ONE`, baseball two-way, Core PCE `NESTED_IMPLICATION` |
 | Relation survives every reachable mechanism | **NO** — the fair-market regime drops every partition floor to $0.00 |
 | Exchange mechanics do not eliminate the edge | **YES** — conventional CLOB, no pricing identity, no netting |
@@ -466,6 +525,10 @@ obtaining them would be research on a basket already known to be unguaranteed.
 
 Three sentences, none of them about the residual formula:
 
+0. **Remove the open-ended reservation.** Delete "or as otherwise set forth on
+   the Exchange pursuant to DCM Rule 7.2. Consistent with DCM Rule 7.2, Rothera
+   reserves the right to make settlement determinations", or give it a stated
+   output. This is now the *only* ordinary blocker for the soccer family.
 1. **Couple the prices.** "Where the Exchange determines fair market prices for
    a set of Contracts that partition an event, those prices shall sum to the
    Settlement Value." This alone converts §10 from a $0.00 floor to $1.00 and is
@@ -482,7 +545,7 @@ Absent those, every basket claim at Rothera is UNKNOWN, and UNKNOWN blocks.
 ## Verification
 
 ```
-pytest                 2919 passed, 2 skipped, 8 deselected
+pytest                 2943 passed, 2 skipped, 8 deselected
 ruff check .           All checks passed
 ruff format --check .  259 files already formatted
 mypy src tests         Success: no issues found in 220 source files

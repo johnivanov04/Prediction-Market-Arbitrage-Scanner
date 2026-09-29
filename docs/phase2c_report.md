@@ -72,11 +72,20 @@ product certification — and it was invisible to a rulebook screen.
 | `CANCELLATION_LAST_RESULTS` | 9.101(K) Cancellation | **UNRESOLVED, reachable — blocks** |
 | `INDETERMINATE_FALLBACK` | 9.101(K) Postponement | UNRESOLVED |
 | `OUTCOME_REVIEW` | Rulebook 10.4 + Rule 1.1 | PROVEN_COMPLEMENTARY |
-| `VOID_REFUND` | Rulebook 2.8(d)(iii) | UNRESOLVED |
+| `VOID_REFUND` | Rulebook 2.8(d)(iii) | **excluded — `RESIDUAL_VENUE_INTERVENTION_RISK`** |
 
 Closure is **not** established: Section K governs irregularities "not covered in
 Section D" as an enumerated list, but Rulebook Rules 10.3, 10.4 and 2.8(d) reach
 the same contracts and the interaction is unstated.
+
+**Scope note (applied in phase 2D).** Rule 2.8 emergency authority is now
+excluded from the semantic proof and disclosed as
+`RESIDUAL_VENUE_INTERVENTION_RISK`. **The verdict is unchanged.** Polymarket US
+never depended on the emergency power to fail: Rule 9.101(K) cancellation is a
+product clause reachable on any rained-off game and stays inside the proof, as
+does 9.101(K) postponement. That is exactly the narrowness the exclusion is
+designed to preserve — a venue does not get to reclassify a product settlement
+clause by pointing at its emergency chapter.
 
 Rounding: `UNSPECIFIED`. The three enumerated outcomes land on the cent grid, so
 ordinary settlement has nothing to round; the cancellation path does, because
@@ -350,7 +359,7 @@ UNKNOWN, and UNKNOWN blocks.
 ## Verification
 
 ```
-pytest                 2850 passed, 2 skipped, 8 deselected
+pytest                 2943 passed, 2 skipped, 8 deselected
 ruff check .           All checks passed
 ruff format --check .  249 files already formatted
 mypy src tests         Success: no issues found in 211 source files

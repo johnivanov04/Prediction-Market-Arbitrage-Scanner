@@ -2109,6 +2109,65 @@ shortfall without authorising one (A-64). No further ProphetX research is
 warranted unless a product-specific rule is proven to override Rule 5.2 for
 every reachable terminal state.
 
+### A-72 Extraordinary venue intervention is outside the settlement proof
+
+*Phase 2 freeze. Classification: POLICY, with a structural rationale.*
+
+Broad exchange-wide emergency authority is **not** part of the ordinary
+contractual settlement proof when it represents extraordinary venue or
+regulatory intervention rather than a normal product settlement mechanism.
+Powers of this kind include suspending trading venue-wide, invoking emergency
+authority, amending rules under extraordinary conditions, and responding to
+market disruption at the exchange level.
+
+**Rationale.** A proof that no sovereign, regulator or exchange will ever
+intervene is unobtainable on any regulated venue. Requiring it makes contractual
+arbitrage unprovable everywhere — which means the requirement stops
+discriminating between venues and simply refuses all of them for a property none
+of them can have. Proving what a contract pays when it resolves normally is a
+different question, about text, and it does have an answer.
+
+Recorded as `RESIDUAL_VENUE_INTERVENTION_RISK`
+(`predarb.semantics.venue_intervention.ResidualVenueInterventionRisk`), carried
+on `ComplementConservationProof.residual_interventions`, and emitted by both
+`describe()` and `payload()`. **Excluded from the proof, never from the
+disclosure.**
+
+The strongest claim the machinery can produce is therefore
+`CONTRACTUALLY_GUARANTEED_UNDER_NORMAL_GOVERNING_SETTLEMENT`
+(`ConservationScope.NORMAL_GOVERNING_SETTLEMENT`), with extraordinary venue risk
+disclosed separately. Nothing is described as risk-free, and a proven family's
+`exact_bound()` names the intervention powers it was not proven against.
+
+**The exclusion is narrow, and the narrowness is enforced rather than
+documented.** `IN_SCOPE_MECHANISMS` contains the entire `SettlementMechanism`
+census, and `classify_intervention` returns `ORDINARY_CONTRACT_RESOLUTION` for
+any mechanism in it regardless of how the venue labels it. These remain fully
+inside the proof:
+
+* product cancellation rules
+* normal settlement discretion
+* fair-market-price settlement
+* tie / push rules
+* source failure
+* outcome review
+* scheduled contingencies
+* product-specific discretionary valuation
+* any mechanism expressly reachable in ordinary contract resolution
+
+Only authority that is not a way of settling a contract at all — power over the
+venue or over the Rules — can be excluded. A parametrised test asserts that six
+settlement mechanisms stay in scope even when claimed venue-wide and claimed
+unreachable in ordinary resolution.
+
+**Applied to two venues; neither verdict changed.** Rothera DCM Rule 1.11 and
+Polymarket US Rule 2.8 left their censuses. Polymarket US remains blocked by
+Rule 9.101(K) cancellation, a product clause reachable on any rained-off game.
+Rothera remains blocked by its Contingencies clause, which in all fourteen
+certifications reserves "the right to make settlement determinations" on
+ordinary source delay with no stated output — a blocker the correction
+*surfaced*, having previously been masked by the emergency power (A-68).
+
 
 ## Sources
 

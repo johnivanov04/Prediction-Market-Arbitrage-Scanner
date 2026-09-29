@@ -27,6 +27,10 @@ from predarb.semantics.cross_market_relation import (
 from predarb.semantics.dependency import DependencyClosure
 from predarb.semantics.precedence import ControlFinding, PrecedenceStatus
 from predarb.semantics.settlement_census import SettlementMechanism
+from predarb.semantics.venue_intervention import (
+    IN_SCOPE_MECHANISMS,
+    ConservationScope,
+)
 from predarb.venues.polymarket_us.governing_sources import (
     AEC_TERMS_SHA256,
     CAOC_TERMS_SHA256,
@@ -53,6 +57,7 @@ from predarb.venues.polymarket_us.settlement_findings import (
     AEC_PRECEDENCE,
     CANCELLATION,
     CLEARING_DEPENDENCY,
+    EMERGENCY_INTERVENTION,
     NOTIONAL,
     ORDINARY,
     OUTCOME_REVIEW,
@@ -218,6 +223,26 @@ class TestCancellationPath:
 
     def test_so_the_family_verdict_is_not_disproven(self):
         assert AEC_COMPLEMENT_PROOF.status is not ProofStatus.DISPROVEN
+
+    def test_the_emergency_chapter_does_not_rescue_the_product_clause(self):
+        """The scope exclusion is narrow. Rule 2.8 emergency authority leaves
+        the proof; Rule 9.101(K) cancellation is a product clause reachable on
+        any rained-off game and stays in."""
+        assert EMERGENCY_INTERVENTION in AEC_COMPLEMENT_PROOF.residual_interventions
+        assert CANCELLATION in AEC_COMPLEMENT_PROOF.mechanisms
+        assert CANCELLATION.mechanism in IN_SCOPE_MECHANISMS
+        assert CANCELLATION.blocks
+
+    def test_the_residual_risk_is_disclosed_in_the_description(self):
+        assert "RESIDUAL_VENUE_INTERVENTION_RISK" in AEC_COMPLEMENT_PROOF.describe()
+
+    def test_the_verdict_is_unchanged_by_the_scope_correction(self):
+        """Polymarket US never depended on the emergency power to fail."""
+        assert AEC_COMPLEMENT_PROOF.conservation_scope is ConservationScope.NOT_ESTABLISHED
+        assert [m.mechanism for m in AEC_COMPLEMENT_PROOF.blocking] == [
+            SettlementMechanism.CANCELLATION_LAST_RESULTS,
+            SettlementMechanism.INDETERMINATE_FALLBACK,
+        ]
 
     def test_it_is_blocked_by_incomplete_evidence_instead(self):
         """Stricter than NOT_PROVEN, and for a stated reason: the mechanism list
