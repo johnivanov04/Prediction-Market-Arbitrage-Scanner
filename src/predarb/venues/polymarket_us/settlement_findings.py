@@ -60,6 +60,7 @@ from predarb.semantics.precedence import (
     SupportingAuthority,
 )
 from predarb.semantics.settlement_census import SettlementMechanism
+from predarb.semantics.venue_intervention import ResidualVenueInterventionRisk
 from predarb.venues.polymarket_us.governing_sources import (
     AEC_TERMS_SHA256,
     CAOC_TERMS_SHA256,
@@ -205,20 +206,36 @@ OUTCOME_REVIEW: Final = MechanismProof(
     both_branches_explicit=True,
 )
 
-EMERGENCY_REFUND: Final = MechanismProof(
-    mechanism=SettlementMechanism.VOID_REFUND,
-    status=MechanismStatus.UNRESOLVED,
-    rule_reference="Rulebook Rule 2.8(d)(iii)",
+EMERGENCY_INTERVENTION: Final = ResidualVenueInterventionRisk(
+    venue="QCX LLC d/b/a Polymarket US",
+    rule_reference="Rulebook Rule 2.8 Emergency Rules, in particular 2.8(d)(iii)",
     quoted_text=(
-        "cancellation of a Contract and return of any funds paid to enter Trades on the Contracts"
+        "reduction of positions and exposure by Participants to certain Contracts; "
+        "cancellation of a Contract and return of any funds paid to enter Trades on "
+        "the Contracts; extension/shortening of the expiration and/or closing date "
+        "of a Contract; suspension and curtailing of trading; and changing a "
+        "Contract's terms and conditions and/or specifications."
     ),
-    reasoning=(
-        "A bounded refund rather than a discretionary valuation, and Rule "
-        "9.101(I) does make the two sides' postings pair to the notional -- the "
-        "purchaser posts the trade price, the seller one dollar minus it. What is "
-        "not established is whether 'funds paid to enter Trades' is that margin "
-        "alone or also the taker fee, which is charged to the balance at "
-        "execution. Left unresolved rather than argued into a complement."
+    powers=(
+        "cancel a Contract and return funds paid to enter Trades",
+        "reduce Participants' positions and exposure",
+        "suspend or curtail trading",
+        "change a Contract's terms and conditions or specifications",
+    ),
+    rationale=(
+        "Chapter 2 emergency authority over the venue, fired by a declared "
+        "Emergency rather than by any contingency in a contract's own terms. "
+        "Excluded from the semantic proof on the same narrow basis as Rothera "
+        "Rule 1.11, and disclosed here instead.\n\n"
+        "What this exclusion does not reach is the reason Polymarket US fails. "
+        "Rule 9.101(K) cancellation is a product clause reachable on any "
+        "rained-off game, and 9.101(K) postponement likewise; both stay inside "
+        "the proof. A venue does not get to reclassify a product settlement "
+        "clause by pointing at its emergency chapter."
+    ),
+    approval_gate=(
+        "Rule 2.8 requires CFTC notification no more than 24 hours after "
+        "implementation, modification or termination."
     ),
 )
 
@@ -232,7 +249,6 @@ AEC_COMPLEMENT_PROOF: Final = ComplementConservationProof(
         CANCELLATION,
         UNDETERMINED_OUTCOME,
         OUTCOME_REVIEW,
-        EMERGENCY_REFUND,
     ),
     sources=(_RULEBOOK, _AEC),
     rounding=RoundingModel.UNSPECIFIED,
@@ -244,6 +260,7 @@ AEC_COMPLEMENT_PROOF: Final = ComplementConservationProof(
         "is the residual."
     ),
     mechanism_closure_established=False,
+    residual_interventions=(EMERGENCY_INTERVENTION,),
     notes=(
         "Screening the DCM rulebook alone returns zero hits for 'fair allocation', "
         "'last traded price', 'fifty cents' and '0.50'. Every one of those "

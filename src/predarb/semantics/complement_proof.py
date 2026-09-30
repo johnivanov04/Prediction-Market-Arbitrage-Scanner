@@ -46,6 +46,10 @@ from typing import Any
 
 from predarb.domain.money import Price
 from predarb.semantics.settlement_census import SettlementMechanism
+from predarb.semantics.venue_intervention import (
+    ConservationScope,
+    ResidualVenueInterventionRisk,
+)
 
 __all__ = [
     "ComplementConservationProof",
@@ -217,7 +221,28 @@ class ComplementConservationProof:
     An unknown closure blocks: an unenumerated path is exactly the kind of thing
     a proof is supposed to rule out."""
 
+    residual_interventions: tuple[ResidualVenueInterventionRisk, ...] = field(default_factory=tuple)
+    """Extraordinary venue authority excluded from the proof and disclosed beside it.
+
+    Excluded from the *proof*, never from the *report*: :meth:`describe` and
+    :meth:`payload` both carry it, and :attr:`conservation_scope` refuses to say
+    anything stronger than "under normal governing settlement" while any is
+    recorded. See :mod:`predarb.semantics.venue_intervention` for why this
+    boundary exists and how narrow it is."""
+
     notes: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def conservation_scope(self) -> ConservationScope:
+        """What a positive verdict here is a verdict about.
+
+        Never unqualified. A proven family with residual interventions recorded
+        is guaranteed *under normal governing settlement* and is not risk-free;
+        one with none recorded is still only a claim about the governing text.
+        """
+        if self.status in {ProofStatus.PROVEN_SYSTEMICALLY, ProofStatus.PROVEN_FOR_SUBSET}:
+            return ConservationScope.NORMAL_GOVERNING_SETTLEMENT
+        return ConservationScope.NOT_ESTABLISHED
 
     @property
     def reachable(self) -> tuple[MechanismProof, ...]:
@@ -295,7 +320,13 @@ class ComplementConservationProof:
     def exact_bound(self) -> str:
         """The conservation bound this proof supports, stated honestly."""
         if self.status is ProofStatus.PROVEN_FOR_SUBSET:
-            return f"YES + NO == {self.notional} exactly, in every reachable state"
+            bound = f"YES + NO == {self.notional} exactly, in every ordinary settlement state"
+            if self.residual_interventions:
+                bound += (
+                    f"; {len(self.residual_interventions)} extraordinary venue "
+                    "intervention power(s) disclosed separately and not proven against"
+                )
+            return bound
         if not self.rounding.conserves_exactly:
             return (
                 f"no bound: the rounding model is {self.rounding.value}, so the "
@@ -317,6 +348,16 @@ class ComplementConservationProof:
             "mechanism_closure_established": self.mechanism_closure_established,
             "mechanisms": [m.payload() for m in self.mechanisms],
             "sources": [s.payload() for s in self.sources],
+            "conservation_scope": self.conservation_scope.value,
+            "residual_interventions": [
+                {
+                    "venue": r.venue,
+                    "rule_reference": r.rule_reference,
+                    "powers": list(r.powers),
+                    "rationale": r.rationale,
+                }
+                for r in self.residual_interventions
+            ],
             "exact_bound": self.exact_bound(),
             "source_digest": self.source_digest(),
             "notes": list(self.notes),
@@ -326,7 +367,13 @@ class ComplementConservationProof:
         lines = [f"{self.subject}: {self.status.value}", f"  notional {self.notional}"]
         lines += [f"  {m.describe()}" for m in self.mechanisms]
         lines.append(f"  rounding: {self.rounding.value}")
+        lines.append(f"  scope: {self.conservation_scope.value}")
         lines.append(f"  bound: {self.exact_bound()}")
+        lines += [
+            "  " + line
+            for risk in self.residual_interventions
+            for line in risk.disclosure().splitlines()
+        ]
         return "\n".join(lines)
 
 

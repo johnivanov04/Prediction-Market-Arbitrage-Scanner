@@ -66,6 +66,7 @@ from predarb.semantics.complement_proof import (
     SourceComponent,
 )
 from predarb.semantics.settlement_census import SettlementMechanism
+from predarb.semantics.venue_intervention import ResidualVenueInterventionRisk
 from predarb.venues.rothera.governing_sources import (
     DCM_RULEBOOK_SHA256,
     DCO_RULEBOOK_SHA256,
@@ -73,12 +74,13 @@ from predarb.venues.rothera.governing_sources import (
 
 __all__ = [
     "BASEBALL_PROOF",
-    "EMERGENCY_ALTERATION",
+    "EMERGENCY_INTERVENTION",
     "FAIR_MARKET_RESIDUAL",
     "MIN_TICK",
     "NOTIONAL",
     "ORDINARY",
     "RULE_72_CITATION_NOTE",
+    "SETTLEMENT_DETERMINATION_RESERVATION",
     "SOCCER_PROOF",
     "UNSPLIT_FAIR_MARKET",
     "family_proof",
@@ -165,25 +167,87 @@ UNSPLIT_FAIR_MARKET: Final = MechanismProof(
     ),
 )
 
-EMERGENCY_ALTERATION: Final = MechanismProof(
+SETTLEMENT_DETERMINATION_RESERVATION: Final = MechanismProof(
     mechanism=SettlementMechanism.INDETERMINATE_FALLBACK,
     status=MechanismStatus.UNRESOLVED,
-    rule_reference="DCM Rule 1.11(B)(3) and (B)(9); DCO Rule 1.11 equivalent",
+    rule_reference="Contract Terms, 'Contingencies' (all fourteen families)",
     quoted_text=(
-        "provide alternative settlement mechanisms for any Contract (including "
-        "by altering the settlement terms or conditions or fixing the settlement "
-        "price) or suspend the transfer of the Underlying ... modify or suspend "
-        "any provisions of the Rules"
+        "If the Source Agency does not actually announce a result consistent "
+        "with the settlement methodology or the Payment Criterion on or before "
+        "the Expiration Date due to a delay, postponement, cancellation or "
+        "otherwise in such release announcement by the Source Agency, the "
+        "Settlement Date, Expiration Date and Expiration Time will be delayed "
+        "until the Underlying outcome or results are released or as otherwise "
+        "set forth on the Exchange pursuant to DCM Rule 7.2. Consistent with "
+        "DCM Rule 7.2, Rothera reserves the right to make settlement "
+        "determinations."
     ),
     reasoning=(
-        "'Fixing the settlement price' is the harmless discretion -- it feeds "
-        "the residual formula and conserves. 'Altering the settlement terms or "
-        "conditions' is not bounded, and (B)(9) reaches the Rules themselves. "
-        "Nothing here authorises a shortfall, so this is UNRESOLVED and not "
-        "NOT_COMPLEMENTARY; it blocks because an unbounded power to change the "
-        "terms is not a proof that the terms hold."
+        "The stated remedy is a delay, which is a timing remedy and conserves. "
+        "Two things escape it. 'Or as otherwise set forth on the Exchange "
+        "pursuant to DCM Rule 7.2' points somewhere unbounded, and 'Rothera "
+        "reserves the right to make settlement determinations' reserves a "
+        "settlement power with no stated output -- not a price, not a side, not "
+        "a split. Source delay is an ordinary contingency reachable in the "
+        "normal life of every contract, so this stays inside the semantic proof "
+        "and is not excluded with the emergency authority.\n\n"
+        "Nothing here authorises a shortfall, so UNRESOLVED rather than "
+        "NOT_COMPLEMENTARY. It is the reason the residual construction, which "
+        "is itself proven, does not carry any family to a proof: a separate "
+        "open-ended reservation sits beside it in every certification."
     ),
 )
+"""Present verbatim in all fourteen certifications. The blocker that survives
+the emergency-scope correction, and the one that is genuinely about settling a
+contract rather than about running an exchange."""
+
+EMERGENCY_INTERVENTION: Final = ResidualVenueInterventionRisk(
+    venue="Rothera Exchange and Clearing LLC",
+    rule_reference="DCM Rule 1.11 Emergency Rules (and the DCO Rule 1.11 equivalent)",
+    quoted_text=(
+        "During an Emergency, the Company may implement temporary emergency "
+        "procedures and rules ... (1) suspend or curtail trading in, or limit "
+        "trading to liquidation, for any Contract; ... (3) provide alternative "
+        "settlement mechanisms for any Contract (including by altering the "
+        "settlement terms or conditions or fixing the settlement price) or "
+        "suspend the transfer of the Underlying; ... (9) modify or suspend any "
+        "provisions of the Rules; or (10) any other action, if so directed by "
+        "the CFTC."
+    ),
+    powers=(
+        "suspend or curtail trading venue-wide, or limit it to liquidation",
+        "provide alternative settlement mechanisms, including altering the "
+        "settlement terms or conditions",
+        "modify or suspend any provision of the Rules",
+        "act as directed by the CFTC",
+    ),
+    rationale=(
+        "This is authority over the venue and over the Rules themselves, not a "
+        "way of resolving a contract. It fires on a declared Emergency rather "
+        "than on any scheduled contingency, and nothing in the life of a listed "
+        "contract reaches it: an abandoned match, a delayed BEA release or a "
+        "disqualified team are all handled by product clauses that stay inside "
+        "the proof. Requiring a proof against it would require proving that no "
+        "regulator or exchange will ever intervene, which no regulated venue can "
+        "supply -- so the requirement would reject every venue for a property "
+        "none of them has, rather than discriminate between them."
+    ),
+    approval_gate=(
+        "Rule 1.11(B) limits the determination to the CEO, President or CCO or "
+        "their designees; Rule 1.11(D) requires prior Regulatory Oversight "
+        "Committee approval at a duly convened meeting; Rule 1.11(C) requires "
+        "the effects on underlying and linked markets to be considered and "
+        "documented."
+    ),
+)
+"""Rule 1.11 leaves the semantic proof and is disclosed beside it.
+
+Note what is *not* excluded with it. Rothera's fair-market-price settlement,
+its cancellation and abandonment bullets, its source-failure contingencies and
+its disqualification clauses are all ordinary contract resolution and all stay
+inside the proof -- including the two that omit the split. The exclusion is one
+rule, and it is the one that is not about settling a contract.
+"""
 
 RULE_72_CITATION_NOTE: Final = (
     "Every fair-market clause cites 'Rothera DCM Rule 7.2' as the authority for "
@@ -207,6 +271,7 @@ def family_proof(
     includes_unsplit_path: bool = False,
     extra: tuple[MechanismProof, ...] = (),
     notes: tuple[str, ...] = (),
+    closure_established: bool = False,
 ) -> ComplementConservationProof:
     """Assemble one family's proof from the shared Rothera mechanisms.
 
@@ -214,7 +279,12 @@ def family_proof(
     fair-market language across all fourteen -- so they share mechanisms rather
     than restating them, and differ only where the filed text differs.
     """
-    mechanisms = (ORDINARY, FAIR_MARKET_RESIDUAL, EMERGENCY_ALTERATION, *extra)
+    mechanisms = (
+        ORDINARY,
+        FAIR_MARKET_RESIDUAL,
+        SETTLEMENT_DETERMINATION_RESERVATION,
+        *extra,
+    )
     if includes_unsplit_path:
         mechanisms = (*mechanisms, UNSPLIT_FAIR_MARKET)
     return ComplementConservationProof(
@@ -233,7 +303,8 @@ def family_proof(
             "exact at any precision. Fees are the only place Rothera rounds, "
             "and they are account debits rather than payout adjustments."
         ),
-        mechanism_closure_established=False,
+        mechanism_closure_established=closure_established,
+        residual_interventions=(EMERGENCY_INTERVENTION,),
         notes=(
             RULE_72_CITATION_NOTE,
             "Neither rulebook defines the vocabulary the products rely on: the "
